@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+models/
+*.wav
+*.db
+.DS_Store
+node_modules/
+dist/
+target/
+apps/tauri/gen/
+apps/web/dist/
+.katipai/

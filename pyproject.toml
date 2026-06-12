@@ -1,0 +1,39 @@
+[project]
+name = "katipai"
+version = "0.1.0"
+description = "Arka planda ses dinleyip not alan lokal AI asistan"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy>=2.0.36",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "sounddevice>=0.5.1",
+    "numpy>=1.26.0",
+    "scipy>=1.14.0",
+    "silero-vad>=5.1.2",
+    "onnxruntime>=1.20.0",
+    "mlx-whisper>=0.4.2",
+    "mlx-lm>=0.21.0",
+    "websockets>=14.0",
+    "watchdog>=6.0.0",
+    "python-multipart>=0.0.17",
+    "rumps>=0.4.0; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.28.0", "ruff>=0.8.0"]
+
+[project.scripts]
+katipai = "core.cli:main"
+katipai-server = "core.main:run_server"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*"]
