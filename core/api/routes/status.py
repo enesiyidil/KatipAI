@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from core import services
 from core.db.models import RecordingMode
@@ -6,42 +6,79 @@ from core.db.models import RecordingMode
 router = APIRouter()
 
 
-@router.get("/status")
-def get_status():
+def _status_payload():
     svc = services.recording_service
     return {
         "state": svc.app_state.value if svc else "idle",
         "mode": svc.mode.value if svc else "normal",
         "session_id": svc.session_id if svc else None,
+        "running": svc.is_running if svc else False,
     }
+
+
+@router.get("/status")
+def get_status():
+    return _status_payload()
+
+
+@router.post("/start")
+def start():
+    svc = services.recording_service
+    if not svc:
+        raise HTTPException(503, "Recording service unavailable")
+    ok = svc.start()
+    return {"ok": ok, **_status_payload()}
+
+
+@router.post("/stop")
+def stop():
+    svc = services.recording_service
+    if not svc:
+        raise HTTPException(503, "Recording service unavailable")
+    ok = svc.stop()
+    return {"ok": ok, **_status_payload()}
 
 
 @router.post("/pause")
 def pause():
-    if services.recording_service:
-        services.recording_service.pause()
-    return {"ok": True}
+    svc = services.recording_service
+    if not svc:
+        raise HTTPException(503, "Recording service unavailable")
+    ok = svc.pause()
+    return {"ok": ok, **_status_payload()}
 
 
 @router.post("/resume")
 def resume():
-    if services.recording_service:
-        services.recording_service.resume()
-    return {"ok": True}
+    svc = services.recording_service
+    if not svc:
+        raise HTTPException(503, "Recording service unavailable")
+    ok = svc.resume()
+    return {"ok": ok, **_status_payload()}
 
 
 @router.post("/mode/{mode}")
 def set_mode(mode: str):
-    if services.recording_service:
-        services.recording_service.set_mode(RecordingMode(mode))
-    return {"ok": True, "mode": mode}
+    try:
+        recording_mode = RecordingMode(mode)
+    except ValueError:
+        raise HTTPException(400, f"Invalid mode: {mode}")
+    svc = services.recording_service
+    if not svc:
+        raise HTTPException(503, "Recording service unavailable")
+    svc.set_mode(recording_mode)
+    return {"ok": True, **_status_payload()}
 
 
 @router.post("/manual-record")
 def manual_record():
-    if services.recording_service:
-        services.recording_service.manual_record_start()
-    return {"ok": True}
+    svc = services.recording_service
+    if not svc:
+        raise HTTPException(503, "Recording service unavailable")
+    if not svc.is_running:
+        raise HTTPException(409, "Dinleme kapalı — önce başlatın")
+    svc.manual_record_start()
+    return {"ok": True, **_status_payload()}
 
 
 @router.post("/delete-last-chunk")

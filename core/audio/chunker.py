@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import scipy.io.wavfile as wavfile
 
+from core.audio.quality import is_loud_enough
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,12 @@ class ChunkResult:
     duration_ms: int
     speaker_label: str
     started_at: datetime
+    audio: np.ndarray | None = None
+    is_echo: bool = False
+    echo_score: float | None = None
+    voice_match_score: float | None = None
+    skip_reason: str | None = None
+    source_app: str | None = None
 
 
 class AudioChunker:
@@ -56,13 +63,20 @@ class AudioChunker:
         session_id: int,
         on_chunk: Callable[[ChunkResult], None],
         on_session_idle: Callable[[], None],
-        vad,
         sample_rate: int = 16000,
+        echo_dedup=None,
+        voice_matcher=None,
+        source_app: str | None = None,
     ):
+        from core.audio.vad_processor import SileroVAD
+
         self.session_id = session_id
         self.on_chunk = on_chunk
         self.on_session_idle = on_session_idle
-        self.vad = vad
+        self._echo_dedup = echo_dedup
+        self._voice_matcher = voice_matcher
+        self._source_app = source_app
+        self._vads = {ch: SileroVAD() for ch in Channel}
         self.sample_rate = sample_rate
         self.chunk_silence_ms = settings.silence_chunk_ms
         self.session_silence_ms = settings.silence_session_ms
@@ -79,7 +93,7 @@ class AudioChunker:
             return
 
         state = self._states[channel]
-        is_speech = self.vad.is_speech(frame, self.sample_rate)
+        is_speech = self._vads[channel].is_speech(frame, self.sample_rate)
 
         if is_speech:
             self._global_silence_ms = 0
@@ -114,17 +128,48 @@ class AudioChunker:
             state.silence_ms = 0
             return
 
+        rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+        if not is_loud_enough(rms):
+            logger.debug("Chunk atlandı (düşük ses rms=%.4f) kanal=%s", rms, state.channel.value)
+            state.buffer = []
+            state.is_recording = False
+            state.silence_ms = 0
+            return
+
         started_at = state.last_speech_at or datetime.now(timezone.utc)
         filename = f"{state.channel.value}_{self._chunk_index:04d}.wav"
         path = self.output_dir / filename
         wavfile.write(path, self.sample_rate, (audio * 32767).astype(np.int16))
 
+        is_echo = False
+        echo_score = None
+        skip_reason = None
+        voice_match_score = None
+        speaker_label = state.current_speaker
+
+        if state.channel == Channel.MIC and self._echo_dedup is not None:
+            is_echo, echo_score = self._echo_dedup.is_echo(audio)
+            if is_echo:
+                skip_reason = "echo"
+                logger.info("Mic chunk echo detected (score=%.2f)", echo_score)
+
+        if state.channel == Channel.MIC and not is_echo and self._voice_matcher is not None:
+            voice_match_score, speaker_label, voice_skip = self._voice_matcher.evaluate(audio)
+            if voice_skip:
+                skip_reason = "voice_mismatch"
+
         result = ChunkResult(
             channel=state.channel,
             audio_path=path,
             duration_ms=duration_ms,
-            speaker_label=state.current_speaker,
+            speaker_label=speaker_label,
             started_at=started_at,
+            audio=audio,
+            is_echo=is_echo,
+            echo_score=echo_score,
+            voice_match_score=voice_match_score,
+            skip_reason=skip_reason,
+            source_app=self._source_app if state.channel == Channel.SYSTEM else None,
         )
         self._chunk_index += 1
         state.buffer = []

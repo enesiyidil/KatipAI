@@ -1,4 +1,5 @@
 import logging
+import re
 
 from mlx_lm import generate, load
 
@@ -9,18 +10,55 @@ from core.stt.transcriber import ModelManager
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Sen KatipAI not asistanısın. Verilen toplantı/konuşma transcript'inden Türkçe yapılandırılmış not üret.
-Çıktı formatı (Markdown):
+SYSTEM_PROMPT = """Sen KatipAI not asistanısın. Verilen konuşma transcript'inden Türkçe yapılandırılmış not üret.
+
+KURALLAR:
+- Sadece aşağıdaki Markdown formatını yaz
+- Düşünme süreci, açıklama, analiz YAZMA
+- "Thinking Process" veya benzeri metin YAZMA
+
+FORMAT:
 ## Özet
-2-4 cümle
+(2-4 cümle)
 
 ## Önemli Anlar
-- karar, action item, deadline
+- (karar, action item, deadline)
 
 ## Notlar
-- kısa bullet'lar
+- (kısa bullet'lar)"""
 
-Sadece Markdown döndür, ek açıklama yapma."""
+
+def _clean_output(text: str) -> str:
+    """Strip Qwen thinking/reasoning; keep only the note markdown."""
+    text = text.strip()
+
+    # Remove Qwen thinking blocks
+    text = re.sub(r"``", "", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Drop everything before the first ## Özet (or other section headers)
+    for marker in ("## Özet", "## Önemli Anlar", "## Notlar"):
+        idx = text.find(marker)
+        if idx != -1:
+            text = text[idx:]
+            break
+    else:
+        # Fallback: strip "Thinking Process:" preamble
+        if "Thinking Process:" in text:
+            parts = re.split(r"\n(?=## )", text)
+            text = next((p for p in parts if p.startswith("## ")), text)
+
+    # Trim trailing junk after last meaningful section
+    lines = text.splitlines()
+    out: list[str] = []
+    in_note = False
+    for line in lines:
+        if line.startswith("## "):
+            in_note = True
+        if in_note:
+            out.append(line)
+    text = "\n".join(out).strip() if out else text.strip()
+
+    return text
 
 
 class Summarizer:
@@ -55,25 +93,58 @@ class Summarizer:
             parts.append(f"Düzeltme örnekleri:\n{correction_examples}")
         return "\n".join(parts)
 
-    def summarize_session(self, transcript_lines: list[str]) -> str:
-        model, tokenizer = self._load()
-        context = self._build_context()
-        transcript = "\n".join(transcript_lines)
-        prompt = f"""{SYSTEM_PROMPT}
-
-{context}
-
-Transcript:
-{transcript}
-
-Not:"""
+    def _build_prompt(self, context: str, transcript: str) -> str:
+        _, tokenizer = self._load()
+        user_content = f"/no_think\n\n{context}\n\nTranscript:\n{transcript}" if context else f"/no_think\n\nTranscript:\n{transcript}"
 
         if tokenizer.chat_template:
             messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"{context}\n\nTranscript:\n{transcript}"},
+                {"role": "user", "content": user_content},
             ]
-            prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            try:
+                return tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
+                )
+            except TypeError:
+                return tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True
+                )
 
-        response = generate(model, tokenizer, prompt=prompt, max_tokens=1024, verbose=False)
-        return response.strip()
+        return f"{SYSTEM_PROMPT}\n\n{user_content}\n\nNot:"
+
+    def summarize_session(self, transcript_lines: list[str]) -> str:
+        model, tokenizer = self._load()
+        context = self._build_context()
+        transcript = "\n".join(transcript_lines)
+        prompt = self._build_prompt(context, transcript)
+
+        raw = generate(
+            model,
+            tokenizer,
+            prompt=prompt,
+            max_tokens=512,
+            verbose=False,
+        )
+        cleaned = _clean_output(raw)
+
+        if not cleaned.startswith("##"):
+            logger.warning("LLM output missing markdown headers, using fallback")
+            cleaned = self._fallback_summary(transcript_lines)
+
+        return cleaned
+
+    @staticmethod
+    def _fallback_summary(transcript_lines: list[str]) -> str:
+        bullets = "\n".join(f"- {line}" for line in transcript_lines[:10])
+        return f"""## Özet
+Konuşma kaydı transcript'ten derlendi.
+
+## Önemli Anlar
+{bullets}
+
+## Notlar
+- Tam transcript arşivde."""

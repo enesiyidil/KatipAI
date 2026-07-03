@@ -21,8 +21,26 @@ def _ensure_engine():
 
 
 def init_db() -> None:
+    from core.db.migrate import run_migrations
+    from core.db.models import Speaker
+
     engine, _ = _ensure_engine()
     Base.metadata.create_all(bind=engine)
+    run_migrations()
+    _, session_factory = _ensure_engine()
+    session = session_factory()
+    try:
+        defaults = [
+            ("ben", "Ben", "mic"),
+            ("diger", "Diğer", "system"),
+            ("bilinmeyen", "Bilinmeyen", "mic"),
+        ]
+        for label, display_name, hint in defaults:
+            if not session.query(Speaker).filter_by(label=label).first():
+                session.add(Speaker(label=label, display_name=display_name, channel_hint=hint))
+        session.commit()
+    finally:
+        session.close()
 
 
 @contextmanager

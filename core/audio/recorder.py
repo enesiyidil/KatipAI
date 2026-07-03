@@ -6,9 +6,11 @@ from typing import Callable
 
 import numpy as np
 
+from core.audio.app_sources import source_app_label
 from core.audio.capture import MicrophoneCapture, SystemAudioCapture, SAMPLE_RATE
 from core.audio.chunker import AudioChunker, Channel, ChunkResult
-from core.audio.vad_processor import SileroVAD
+from core.audio.dedup import EchoDedupEngine
+from core.audio.voice_matcher import VoiceMatcher
 from core.config import settings
 from core.db.database import get_session
 from core.db.models import AppState, Chunk, RecordingMode, Session, SessionStatus
@@ -22,19 +24,22 @@ class RecordingService:
     def __init__(
         self,
         on_state_change: Callable | None = None,
+        on_mode_change: Callable | None = None,
         on_chunk_saved: Callable | None = None,
         on_session_end: Callable | None = None,
     ):
         self.on_state_change = on_state_change
+        self.on_mode_change = on_mode_change
         self.on_chunk_saved = on_chunk_saved
         self.on_session_end = on_session_end
         self._mode = RecordingMode.NORMAL
         self._app_state = AppState.IDLE
         self._session_id: int | None = None
         self._chunker: AudioChunker | None = None
-        self._vad = SileroVAD()
         self._mic: MicrophoneCapture | None = None
         self._system: SystemAudioCapture | None = None
+        self._echo_dedup = EchoDedupEngine(sample_rate=SAMPLE_RATE)
+        self._voice_matcher = VoiceMatcher()
         self._running = False
         self._paused = False
         self._lock = threading.Lock()
@@ -56,9 +61,22 @@ class RecordingService:
         self._loop = loop
 
     def _set_state(self, state: AppState) -> None:
+        if self._app_state == state:
+            return
         self._app_state = state
         if self.on_state_change and self._loop:
             asyncio.run_coroutine_threadsafe(self.on_state_change(state), self._loop)
+
+    def _notify_mode(self) -> None:
+        if self.on_mode_change and self._loop:
+            asyncio.run_coroutine_threadsafe(self.on_mode_change(self._mode), self._loop)
+
+    def _should_allow_mic(self) -> bool:
+        if self._mode != RecordingMode.MEETING:
+            return True
+        if settings.voice_filter_mode == "off":
+            return False
+        return self._voice_matcher.is_enrolled()
 
     def _ensure_session(self) -> int:
         if self._session_id is not None:
@@ -80,11 +98,24 @@ class RecordingService:
                 audio_path=str(result.audio_path),
                 started_at=result.started_at,
                 duration_ms=result.duration_ms,
+                source_app=result.source_app,
+                is_echo=result.is_echo,
+                echo_score=result.echo_score,
+                voice_match_score=result.voice_match_score,
+                skip_reason=result.skip_reason,
             )
             db.add(chunk)
             db.flush()
             chunk_id = chunk.id
-        logger.info("Chunk saved: %s %s (%dms)", result.channel.value, chunk_id, result.duration_ms)
+        logger.info(
+            "Chunk saved: %s %s (%dms) skip=%s echo=%.2f voice=%s",
+            result.channel.value,
+            chunk_id,
+            result.duration_ms,
+            result.skip_reason,
+            result.echo_score or 0,
+            result.voice_match_score,
+        )
         self._set_state(AppState.PROCESSING)
         if self.on_chunk_saved and self._loop:
             asyncio.run_coroutine_threadsafe(self.on_chunk_saved(chunk_id), self._loop)
@@ -96,8 +127,12 @@ class RecordingService:
     def _handle_frame(self, channel: Channel, frame: np.ndarray) -> None:
         if self._paused or self._mode == RecordingMode.SENSITIVE:
             return
-        if self._mode == RecordingMode.MEETING and channel == Channel.MIC:
-            return
+        if channel == Channel.MIC:
+            if not self._should_allow_mic():
+                return
+            self._echo_dedup.push_mic(frame)
+        if channel == Channel.SYSTEM:
+            self._echo_dedup.push_system(frame)
         if self._mode == RecordingMode.SILENT and channel == Channel.SYSTEM:
             return
 
@@ -108,15 +143,21 @@ class RecordingService:
                     session_id=session_id,
                     on_chunk=self._on_chunk,
                     on_session_idle=self._on_session_idle,
-                    vad=self._vad,
+                    echo_dedup=self._echo_dedup,
+                    voice_matcher=self._voice_matcher,
+                    source_app=source_app_label(),
                 )
             self._chunker.process_frame(channel, frame)
             if self._app_state not in (AppState.RECORDING, AppState.PROCESSING):
                 self._set_state(AppState.LISTENING)
 
-    def start(self) -> None:
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def start(self) -> bool:
         if self._running:
-            return
+            return False
         self._running = True
         self._paused = False
         settings.audio_dir.mkdir(parents=True, exist_ok=True)
@@ -128,35 +169,101 @@ class RecordingService:
             self._system = SystemAudioCapture(lambda f: self._handle_frame(Channel.SYSTEM, f))
             self._system.start()
 
-        self._set_state(AppState.LISTENING)
+        if self._mode == RecordingMode.SENSITIVE:
+            self._set_state(AppState.SENSITIVE)
+        else:
+            self._set_state(AppState.LISTENING)
         logger.info("Recording service started")
+        return True
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        if not self._running:
+            return False
         self._running = False
+        self._paused = False
         if self._chunker:
             self._chunker.stop()
+            self._chunker = None
         if self._mic:
             self._mic.stop()
+            self._mic = None
         if self._system:
             self._system.stop()
+            self._system = None
         self._end_session()
         self._set_state(AppState.IDLE)
+        logger.info("Recording service stopped")
+        return True
 
-    def pause(self) -> None:
+    def restart_system_capture(self) -> None:
+        if not self._running or not settings.system_enabled:
+            return
+        if self._system:
+            self._system.stop()
+        self._system = SystemAudioCapture(lambda f: self._handle_frame(Channel.SYSTEM, f))
+        self._system.start()
+        if self._chunker is not None:
+            self._chunker._source_app = source_app_label()
+        logger.info("System capture restarted")
+
+    def restart_mic_capture(self) -> None:
+        if not self._running or not settings.mic_enabled:
+            return
+        if self._mic:
+            self._mic.stop()
+        self._mic = MicrophoneCapture(lambda f: self._handle_frame(Channel.MIC, f))
+        self._mic.start()
+        logger.info("Microphone capture restarted")
+
+    def restart_all_capture(self) -> None:
+        if not self._running:
+            self.start()
+            return
+        self.restart_mic_capture()
+        self.restart_system_capture()
+
+    def pause(self) -> bool:
+        if not self._running or self._paused:
+            return False
+        if self._mode == RecordingMode.SENSITIVE:
+            return False
         self._paused = True
         self._set_state(AppState.PAUSED)
+        return True
 
-    def resume(self) -> None:
+    def resume(self) -> bool:
+        if not self._running or not self._paused:
+            return False
         self._paused = False
-        self._set_state(AppState.LISTENING)
+        if self._mode == RecordingMode.SENSITIVE:
+            self._set_state(AppState.SENSITIVE)
+        else:
+            self._set_state(AppState.LISTENING)
+        return True
 
     def set_mode(self, mode: RecordingMode) -> None:
         self._mode = mode
+        self._notify_mode()
         if mode == RecordingMode.SENSITIVE:
-            self._set_state(AppState.SENSITIVE)
+            if self._running:
+                self._set_state(AppState.SENSITIVE)
+        elif self._running:
+            if self._paused:
+                self._set_state(AppState.PAUSED)
+            else:
+                self._set_state(AppState.LISTENING)
+
+    def on_processing_complete(self) -> None:
+        if not self._running or self._paused:
+            return
+        if self._mode == RecordingMode.SENSITIVE:
+            return
+        if self._app_state == AppState.PROCESSING:
+            self._set_state(AppState.LISTENING)
 
     def manual_record_start(self) -> None:
         self._mode = RecordingMode.MANUAL
+        self._notify_mode()
         self._ensure_session()
         self._set_state(AppState.RECORDING)
 

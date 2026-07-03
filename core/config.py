@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     sample_rate: int = 16000
     silence_chunk_ms: int = 2000
     silence_session_ms: int = 60000
-    vad_threshold: float = 0.5
+    vad_threshold: float = 0.6
+    min_audio_rms: float = 0.012
 
     stt_model: str = "mlx-community/whisper-large-v3-turbo"
     stt_fallback_model: str = "mlx-community/whisper-medium-mlx"
@@ -26,6 +27,12 @@ class Settings(BaseSettings):
     mic_enabled: bool = True
     system_enabled: bool = True
     audio_retention_days: int = 7
+
+    echo_suppression_enabled: bool = True
+    echo_correlation_threshold: float = 0.65
+    voice_filter_mode: str = "off"
+    voice_match_threshold: float = 0.75
+    capture_all_system_audio: bool = False
 
     @property
     def audio_dir(self) -> Path:

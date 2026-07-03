@@ -1,64 +1,77 @@
 import { useEffect, useState } from "react";
-import { apiGet, connectWS } from "../api";
+import { useLiveStatus } from "../hooks/useLiveStatus";
+import ControlPanel from "../components/ControlPanel";
+import { apiGet, STATE_META } from "../api";
+import { Radio, Mic, Monitor } from "lucide-react";
 
-const STATE_LABELS = {
-  idle: "Beklemede",
-  listening: "Dinliyor",
-  recording: "Kayıt alınıyor",
-  processing: "İşleniyor",
-  paused: "Duraklatıldı",
-  sensitive: "Hassas mod",
-  error: "Hata",
-};
-
-const STATE_COLORS = {
-  idle: "bg-zinc-600",
-  listening: "bg-emerald-500",
-  recording: "bg-red-500 animate-pulse",
-  processing: "bg-blue-500",
-  paused: "bg-orange-500",
-  sensitive: "bg-purple-500",
-  error: "bg-red-700",
-};
+const LIMIT = 20;
 
 export default function Dashboard() {
-  const [status, setStatus] = useState({ state: "idle", mode: "normal" });
-  const [sessions, setSessions] = useState([]);
+  const { status, stats, refresh, tick } = useLiveStatus();
+  const [chunks, setChunks] = useState([]);
 
   useEffect(() => {
-    apiGet("/status").then(setStatus);
-    apiGet("/sessions/today").then(setSessions);
-    connectWS((msg) => {
-      if (msg.event === "state") setStatus((s) => ({ ...s, state: msg.state }));
-      if (msg.event === "transcript_done" || msg.event === "session_finalized") {
-        apiGet("/sessions/today").then(setSessions);
-      }
-    });
-  }, []);
+    apiGet("/timeline/today")
+      .then((d) =>
+        setChunks(
+          d.items.filter((i) => i.text?.trim()).slice(0, LIMIT)
+        )
+      )
+      .catch(() => setChunks([]));
+  }, [tick]);
+
+  const meta = STATE_META[status?.state] || STATE_META.idle;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <div className={`w-4 h-4 rounded-full ${STATE_COLORS[status.state] || "bg-zinc-600"}`} />
-        <div>
-          <h2 className="text-2xl font-semibold">{STATE_LABELS[status.state] || status.state}</h2>
-          <p className="text-zinc-400 text-sm">Mod: {status.mode}</p>
+    <div className="space-y-6 max-w-5xl">
+      <header>
+        <h2 className="text-2xl font-semibold text-zinc-100">Kontrol Paneli</h2>
+        <p className="text-sm text-zinc-500 mt-1">Canlı dinleme ve son transcript'ler</p>
+      </header>
+
+      <div className="grid lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-2 rounded-xl border border-border bg-panel p-5 flex flex-col items-center justify-center text-center min-h-[160px]">
+          <div className={`w-14 h-14 rounded-2xl ${meta.color}/20 flex items-center justify-center mb-3`}>
+            <Radio className={`w-7 h-7 ${meta.text} ${meta.pulse ? "animate-pulse" : ""}`} />
+          </div>
+          <p className={`text-lg font-semibold ${meta.text}`}>{meta.label}</p>
+          <p className="text-xs text-zinc-500 mt-1">
+            {stats ? `${stats.transcripts} transcript bugün` : "—"}
+          </p>
+        </div>
+
+        <div className="lg:col-span-3">
+          <ControlPanel status={status} onAction={refresh} />
         </div>
       </div>
 
       <section>
-        <h3 className="text-lg font-medium mb-3">Bugünün Oturumları</h3>
-        {sessions.length === 0 ? (
-          <p className="text-zinc-500">Henüz oturum yok. Konuşmaya başlayın — VAD otomatik kaydedecek.</p>
+        <h3 className="text-sm font-medium text-zinc-400 mb-3">
+          Son {LIMIT} transcript
+        </h3>
+        {chunks.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center text-zinc-500 text-sm">
+            Henüz transcript yok. Konuşmaya başla.
+          </div>
         ) : (
-          <ul className="space-y-3">
-            {sessions.map((s) => (
-              <li key={s.id} className="border border-zinc-800 rounded-lg p-4">
-                <div className="text-sm text-zinc-400">{new Date(s.started_at).toLocaleTimeString("tr-TR")}</div>
-                <p className="mt-1">{s.summary || "Özet henüz üretilmedi..."}</p>
-              </li>
+          <div className="space-y-2">
+            {chunks.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-lg border border-border bg-panel px-4 py-3 flex gap-3 items-start"
+              >
+                <span className="text-xs text-zinc-500 font-mono shrink-0 pt-0.5 w-10">
+                  {item.time.slice(0, 5)}
+                </span>
+                {item.channel === "mic" ? (
+                  <Mic className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+                ) : (
+                  <Monitor className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                )}
+                <p className="text-sm text-zinc-200 leading-relaxed flex-1">{item.text}</p>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </section>
     </div>

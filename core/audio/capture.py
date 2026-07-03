@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 
+from core.audio.app_sources import get_capture_args
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,6 @@ class SystemAudioCapture:
         self._process: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
         self._running = False
-        self._helper = Path(__file__).resolve().parents[2] / "tools" / "system_audio" / ".build" / "release" / "SystemAudioCapture"
 
     def _read_loop(self) -> None:
         assert self._process and self._process.stdout
@@ -76,18 +76,22 @@ class SystemAudioCapture:
     def start(self) -> None:
         if self._running:
             return
-        if not self._helper.exists():
-            logger.warning("System audio helper not built at %s — system channel disabled", self._helper)
+        cmd = get_capture_args()
+        if cmd is None:
+            logger.warning(
+                "System audio not started — no apps selected. "
+                "Select apps in Settings or enable capture_all_system_audio."
+            )
             return
         self._process = subprocess.Popen(
-            [str(self._helper)],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
         self._running = True
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
-        logger.info("System audio capture started")
+        logger.info("System audio capture started: %s", " ".join(cmd[-3:]))
 
     def stop(self) -> None:
         self._running = False

@@ -46,7 +46,15 @@ Terminal 3 — web arayüzü:
 cd apps/web && npm install && npm run dev
 ```
 
-Tarayıcı: http://localhost:5173
+## Web Arayüzü
+
+```bash
+cd apps/web && npm install && npm run dev
+```
+
+http://localhost:5173
+
+Sayfalar: Kontrol Paneli, Canlı Akış, AI Notları, Transcript, Genel Notlar, Düzeltme, Jargon, Ayarlar
 
 ## Obsidian
 
@@ -54,10 +62,13 @@ Ayarlar'dan vault yolunu girin. Notlar şu yapıda yazılır:
 
 ```
 {vault}/KatipAI/
-  daily/2025-06-12.md
-  sessions/2025-06-12_14-32-07.md
-  archive/transcripts/2025-06-12_14-32-07_full.md
+  README.md
+  transcript/2026-06-12.md      # Günlük ham transcript
+  notes/daily/2026-06-12.md     # Günlük AI notları
+  general/Notlar.md             # Kalıcı genel notlar
 ```
+
+**Genel not komutu:** Konuşurken *"bunu genel notlara ekle"* dersen not `general/Notlar.md` dosyasına eklenir.
 
 ## API
 

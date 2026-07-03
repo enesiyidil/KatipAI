@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -58,9 +58,16 @@ class Chunk(Base):
     audio_path: Mapped[str] = mapped_column(String(1024))
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    source_app: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    is_echo: Mapped[bool] = mapped_column(Boolean, default=False)
+    echo_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    voice_match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    speaker_id: Mapped[int | None] = mapped_column(ForeignKey("speakers.id"), nullable=True)
 
     session: Mapped["Session"] = relationship(back_populates="chunks")
     transcript: Mapped["Transcript | None"] = relationship(back_populates="chunk", uselist=False, cascade="all, delete-orphan")
+    speaker: Mapped["Speaker | None"] = relationship(back_populates="chunks")
 
 
 class Transcript(Base):
@@ -107,6 +114,17 @@ class Speaker(Base):
     label: Mapped[str] = mapped_column(String(64), unique=True)
     display_name: Mapped[str] = mapped_column(String(128))
     channel_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    chunks: Mapped[list["Chunk"]] = relationship(back_populates="speaker")
+
+
+class VoiceProfile(Base):
+    __tablename__ = "voice_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    embedding: Mapped[bytes] = mapped_column(LargeBinary)
+    sample_count: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class Setting(Base):
