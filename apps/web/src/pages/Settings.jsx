@@ -123,7 +123,9 @@ export default function Settings() {
           />
           Sistem sesi etkin
         </label>
-        <p className="text-[10px] text-zinc-600">Mic/system değişikliği servis yeniden başlatmayı gerektirir.</p>
+        <p className="text-[10px] text-zinc-600">
+          Mic/sistem anahtarları anında uygulanır. Uygulama seçimi için yukarıdaki «Kaydet ve Uygula» yeterli.
+        </p>
         <div>
           <label className="text-[11px] text-zinc-500">VAD eşiği: {settings.vad_threshold}</label>
           <input

@@ -1,12 +1,17 @@
 """KatipAI macOS menü bar uygulaması."""
 
 import os
+import socket
 import subprocess
 import webbrowser
 
 import rumps
 
 API = "http://127.0.0.1:8742/api"
+API_HOST = "127.0.0.1"
+API_PORT = 8742
+POLL_TIMEOUT = 8
+MAX_TRANSIENT_FAILURES = 4
 
 STATE_TR = {
     "idle": "Beklemede",
@@ -45,6 +50,8 @@ class KatipAITray(rumps.App):
         self._core_process = None
         self._spawned_core = False
         self._managed = os.environ.get("KATIPAI_MANAGED") == "1"
+        self._poll_failures = 0
+        self._last_good_data: dict | None = None
 
         self.state_item = rumps.MenuItem("Durum: Başlatılıyor...", callback=None)
         self.primary_item = rumps.MenuItem("Dinlemeyi Başlat", callback=self.start_listening)
@@ -110,15 +117,40 @@ class KatipAITray(rumps.App):
             rumps.notification("KatipAI", "Sunucuya ulaşılamadı", str(e)[:120])
             return None
 
-    def _api_get(self, path: str) -> dict:
+    def _api_get(self, path: str, timeout: float = POLL_TIMEOUT) -> dict:
         import json
         import urllib.request
 
         try:
-            with urllib.request.urlopen(f"{API}{path}", timeout=2) as resp:
+            with urllib.request.urlopen(f"{API}{path}", timeout=timeout) as resp:
                 return json.loads(resp.read())
         except Exception:
             return {}
+
+    def _core_port_open(self) -> bool:
+        try:
+            with socket.create_connection((API_HOST, API_PORT), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    def _effective_state(self, data: dict) -> str:
+        state = data.get("state", "idle")
+        pipeline = data.get("pipeline") or {}
+        if pipeline.get("busy") and state == "listening":
+            return "processing"
+        return state
+
+    def _render_status(self, data: dict, *, stale: bool = False) -> None:
+        self._state = self._effective_state(data)
+        self._mode = data.get("mode", "normal")
+        icon = STATE_ICONS.get(self._state, "⚫")
+        state_label = STATE_TR.get(self._state, self._state)
+        mode_label = MODE_TR.get(self._mode, self._mode)
+        suffix = " · yenileniyor" if stale else ""
+        self.state_item.title = f"{icon} {state_label} · {mode_label}{suffix}"
+        self.title = f"K {icon}"
+        self._update_controls()
 
     def _update_controls(self):
         state = self._state
@@ -154,19 +186,23 @@ class KatipAITray(rumps.App):
     def poll_status(self, _):
         data = self._api_get("/status")
         if not data:
+            self._poll_failures += 1
+            if self._last_good_data and self._poll_failures <= MAX_TRANSIENT_FAILURES:
+                stale_data = dict(self._last_good_data)
+                if self._core_port_open():
+                    stale_data["state"] = "processing"
+                self._render_status(stale_data, stale=True)
+                return
             hint = "katipai up" if self._managed else "katipai up veya sunucu başlatın"
             self.state_item.title = f"Durum: Sunucu kapalı ({hint})"
             self.title = "K ⚫"
+            self._state = "idle"
+            self._update_controls()
             return
 
-        self._state = data.get("state", "idle")
-        self._mode = data.get("mode", "normal")
-        icon = STATE_ICONS.get(self._state, "⚫")
-        state_label = STATE_TR.get(self._state, self._state)
-        mode_label = MODE_TR.get(self._mode, self._mode)
-        self.state_item.title = f"{icon} {state_label} · {mode_label}"
-        self.title = f"K {icon}"
-        self._update_controls()
+        self._poll_failures = 0
+        self._last_good_data = data
+        self._render_status(data)
 
     def start_listening(self, _):
         result = self._api_post("/start")

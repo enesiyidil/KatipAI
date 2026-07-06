@@ -6,13 +6,25 @@ from core.db.models import RecordingMode
 router = APIRouter()
 
 
+def _pipeline_info() -> dict[str, int | bool]:
+    from core.api.app import get_pipeline_info
+
+    return get_pipeline_info()
+
+
 def _status_payload():
     svc = services.recording_service
+    pipeline = _pipeline_info()
+    state = svc.app_state.value if svc else "idle"
+    if pipeline["busy"] and state == "listening":
+        state = "processing"
     return {
-        "state": svc.app_state.value if svc else "idle",
+        "state": state,
+        "raw_state": svc.app_state.value if svc else "idle",
         "mode": svc.mode.value if svc else "normal",
         "session_id": svc.session_id if svc else None,
         "running": svc.is_running if svc else False,
+        "pipeline": pipeline,
     }
 
 
@@ -83,5 +95,11 @@ def manual_record():
 
 @router.post("/delete-last-chunk")
 def delete_last_chunk():
-    ok = services.recording_service.delete_last_chunk() if services.recording_service else False
-    return {"ok": ok}
+    chunk_id = None
+    if services.recording_service:
+        chunk_id = services.recording_service.delete_last_chunk()
+    if chunk_id is not None:
+        from core.api.app import notify_clients
+
+        notify_clients("chunk_deleted", chunk_id=chunk_id)
+    return {"ok": chunk_id is not None, "chunk_id": chunk_id}

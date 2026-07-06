@@ -26,8 +26,9 @@ RUN_DIR = settings.data_dir / "run"
 LOG_DIR = RUN_DIR / "logs"
 VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
 SWIFT_HELPER = (
-    PROJECT_ROOT / "tools" / "system_audio" / ".build" / "release" / "SystemAudioCapture"
+    PROJECT_ROOT / "tools" / "system_audio" / "KatipAIAudioHelper.app" / "Contents" / "MacOS" / "KatipAIAudioHelper"
 )
+SWIFT_HELPER_APP = PROJECT_ROOT / "tools" / "system_audio" / "KatipAIAudioHelper.app"
 WEB_DIR = PROJECT_ROOT / "apps" / "web"
 API_URL = f"http://{settings.host}:{settings.port}/api/status"
 WEB_PORT = 5173
@@ -134,10 +135,12 @@ def run_doctor() -> list[CheckResult]:
         else:
             results.append(CheckResult("Swift", CheckStatus.WARN, "bulunamadı", "Xcode CLT — sistem sesi devre dışı"))
 
-        if SWIFT_HELPER.exists():
-            results.append(CheckResult("SystemAudioCapture", CheckStatus.OK, str(SWIFT_HELPER)))
+        if SWIFT_HELPER_APP.exists():
+            results.append(CheckResult("KatipAI Audio", CheckStatus.OK, str(SWIFT_HELPER_APP)))
+        elif SWIFT_HELPER.exists():
+            results.append(CheckResult("KatipAI Audio", CheckStatus.WARN, "app bundle yok", "bash tools/system_audio/build_helper.sh"))
         else:
-            results.append(CheckResult("SystemAudioCapture", CheckStatus.WARN, "derlenmemiş", "cd tools/system_audio && swift build -c release"))
+            results.append(CheckResult("KatipAI Audio", CheckStatus.WARN, "derlenmemiş", "bash tools/system_audio/build_helper.sh"))
     else:
         results.append(CheckResult("macOS", CheckStatus.WARN, "KatipAI tam özellik için macOS 13+ önerilir"))
 
@@ -234,11 +237,16 @@ def _start_process(service: str, cmd: list[str], cwd: Path | None = None, env: d
     return proc.pid
 
 
-def _wait_for_api(timeout: float = 30) -> bool:
+def _wait_for_api(timeout: float = 90, *, progress: bool = True) -> bool:
     deadline = time.time() + timeout
+    last_progress = 0.0
     while time.time() < deadline:
         if _api_healthy():
             return True
+        now = time.time()
+        if progress and now - last_progress >= 5:
+            print("  … API bekleniyor (ilk açılışta model/capture yüklenebilir)")
+            last_progress = now
         time.sleep(0.5)
     return False
 
@@ -269,11 +277,16 @@ def run_up(*, web: bool = False, tray: bool = False) -> None:
     )
     print(f"  core  pid={core_pid}  log={_log_path('core')}")
 
-    if not _wait_for_api():
-        print("  ✗ API 30 sn içinde hazır olmadı — logları kontrol edin:")
+    api_ready = _wait_for_api()
+    if api_ready:
+        print(f"  ✓ API http://{settings.host}:{settings.port}")
+    elif _read_pid("core"):
+        print("  ! API henüz yanıt vermiyor — core çalışıyor, web/tray yine de başlatılıyor")
+        print(f"    tail -f {_log_path('core')}")
+    else:
+        print("  ✗ API hazır olmadı ve core süreci bulunamadı — logları kontrol edin:")
         print(f"    tail -f {_log_path('core')}")
         sys.exit(1)
-    print(f"  ✓ API http://{settings.host}:{settings.port}")
 
     if web:
         npm = _which("npm")

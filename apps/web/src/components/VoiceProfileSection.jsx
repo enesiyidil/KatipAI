@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { apiGet, apiPost, apiDelete, apiPatch } from "../api";
-import { Mic, Trash2, CheckCircle2, AlertCircle } from "lucide-react";
+import { apiGet, apiPost, apiDelete, apiPatch, API_BASE } from "../api";
+import { Mic, Trash2, CheckCircle2, AlertCircle, AlertTriangle } from "lucide-react";
 
 const ENROLL_SECONDS = 30;
 const TEST_SECONDS = 5;
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("tr-TR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
 
 export default function VoiceProfileSection({ settings, onSettingsChange }) {
   const [status, setStatus] = useState(null);
@@ -62,15 +70,16 @@ export default function VoiceProfileSection({ settings, onSettingsChange }) {
   const uploadBlob = async (blob, path) => {
     const form = new FormData();
     form.append("file", blob, "recording.webm");
-    const res = await fetch(`http://127.0.0.1:8742/api${path}`, { method: "POST", body: form });
+    const res = await fetch(`${API_BASE}${path}`, { method: "POST", body: form });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   };
 
   const enroll = () => startRecording(ENROLL_SECONDS, async (blob) => {
     try {
-      await uploadBlob(blob, "/voice/enroll");
-      loadStatus();
+      const res = await uploadBlob(blob, "/voice/enroll");
+      setStatus(res);
+      setTestScore(null);
     } catch (e) {
       setError(String(e.message));
     }
@@ -102,20 +111,69 @@ export default function VoiceProfileSection({ settings, onSettingsChange }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {status.enrolled ? (
-          <span className="inline-flex items-center gap-1 text-sm text-emerald-400">
-            <CheckCircle2 className="w-4 h-4" /> Profil kayıtlı ({status.sample_count} örnek)
-          </span>
+          status.profile_valid ? (
+            <span className="inline-flex items-center gap-1 text-sm text-emerald-400">
+              <CheckCircle2 className="w-4 h-4" /> Profil aktif
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-sm text-amber-400">
+              <AlertTriangle className="w-4 h-4" /> Eski profil — yeniden kaydedin
+            </span>
+          )
         ) : (
           <span className="inline-flex items-center gap-1 text-sm text-zinc-500">
             <AlertCircle className="w-4 h-4" /> Henüz kayıt yok
           </span>
         )}
         {!status.model_ready && (
-          <span className="text-[10px] text-amber-400">ONNX model yok — spektral fallback kullanılıyor</span>
+          <span className="text-[10px] text-amber-400">ONNX model yok — spektral fallback</span>
         )}
       </div>
+
+      {status.enrolled && (
+        <div className="rounded-lg border border-border bg-panel/40 p-3 space-y-3 text-xs text-zinc-400">
+          <div className="grid sm:grid-cols-2 gap-2">
+            <p><span className="text-zinc-500">Kayıt tarihi:</span> {formatDate(status.last_updated)}</p>
+            <p><span className="text-zinc-500">Segment:</span> {status.sample_count} × ~5 sn</p>
+            <p>
+              <span className="text-zinc-500">Vektör:</span>{" "}
+              {status.embedding_dim}D
+              {status.profile_valid ? (
+                <span className="text-emerald-400 ml-1">(uyumlu)</span>
+              ) : (
+                <span className="text-amber-400 ml-1">
+                  (eski — beklenen {status.expected_embedding_dim}D)
+                </span>
+              )}
+            </p>
+            <p>
+              <span className="text-zinc-500">Model:</span>{" "}
+              {status.model_ready ? "ONNX speaker" : "Fallback"}
+            </p>
+          </div>
+
+          {!status.profile_valid && (
+            <p className="text-amber-400/90 leading-relaxed">
+              Bu profil ONNX düzeltmesinden önce kaydedilmiş. Ses eşleşme skoru 0 görünür;
+              aşağıdan <strong className="text-amber-300">Profili Yenile</strong> ile tekrar kaydedin.
+            </p>
+          )}
+
+          {status.has_enrollment_audio && (
+            <div>
+              <p className="text-zinc-500 mb-1.5">Kayıt örneği</p>
+              <audio
+                controls
+                preload="metadata"
+                src={`${API_BASE}/voice/enrollment-audio?t=${status.last_updated || ""}`}
+                className="w-full h-9"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {status.enrollment_text ? (
         <blockquote className="text-xs text-zinc-400 italic border-l-2 border-zinc-700 pl-3">
@@ -136,7 +194,7 @@ export default function VoiceProfileSection({ settings, onSettingsChange }) {
           <>
             <button
               onClick={test}
-              disabled={recording}
+              disabled={recording || !status.profile_valid}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-zinc-300 text-xs hover:bg-panel-hover disabled:opacity-50"
             >
               Test Et (5s)
@@ -145,7 +203,7 @@ export default function VoiceProfileSection({ settings, onSettingsChange }) {
               onClick={deleteProfile}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-500/30 text-red-400 text-xs hover:bg-red-500/10"
             >
-              <Trash2 className="w-3.5 h-3.5" /> Sil
+              <Trash2 className="w-3.5 h-3.5" /> Profili Sil
             </button>
           </>
         )}
@@ -155,6 +213,11 @@ export default function VoiceProfileSection({ settings, onSettingsChange }) {
         <div className={`text-sm ${testScore.match ? "text-emerald-400" : "text-amber-400"}`}>
           Eşleşme skoru: {(testScore.score * 100).toFixed(0)}% (eşik: {(testScore.threshold * 100).toFixed(0)}%)
           — {testScore.label}
+          {!testScore.profile_valid && (
+            <span className="block text-xs text-amber-500/80 mt-1">
+              Profil geçersiz — test sonucu güvenilir değil.
+            </span>
+          )}
         </div>
       )}
 
@@ -165,7 +228,7 @@ export default function VoiceProfileSection({ settings, onSettingsChange }) {
         <div className="flex flex-wrap gap-3">
           {[
             { id: "off", label: "Kapalı" },
-            { id: "prefer", label: "Etiketle (Bilinmeyen)" },
+            { id: "prefer", label: "Yumuşak (Ben)" },
             { id: "strict", label: "Sadece benim sesim" },
           ].map((m) => (
             <label key={m.id} className="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer">

@@ -7,11 +7,90 @@ import platform
 import subprocess
 import sys
 from enum import Enum
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 MIC_SIGNAL_THRESHOLD = 0.002
+
+
+def _helper_path() -> Path:
+    from core.audio.app_sources import _helper_path as app_helper
+
+    return app_helper()
+
+
+def _helper_app_bundle() -> Path:
+    from core.audio.app_sources import helper_app_bundle
+
+    return helper_app_bundle()
+
+
+def _probe_system_capture(seconds: float = 2.0) -> dict:
+    """Try starting ScreenCaptureKit helper; detect permission / config failures."""
+    import time
+
+    helper = _helper_path()
+    if not helper.exists():
+        return {
+            "ok": False,
+            "code": "missing_helper",
+            "stderr": "",
+            "message": "SystemAudioCapture derlenmemiş",
+        }
+
+    from core.audio.app_sources import get_capture_args
+
+    cmd = get_capture_args() or [str(helper), "--capture", "--all"]
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except Exception as e:
+        return {"ok": False, "code": "spawn_failed", "stderr": str(e), "message": str(e)}
+
+    time.sleep(seconds)
+    code = proc.poll()
+    stderr = ""
+    if proc.stderr:
+        try:
+            stderr = proc.stderr.read().decode(errors="replace").strip()
+        except Exception:
+            pass
+
+    if code is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        return {"ok": True, "code": "running", "stderr": "", "message": "Sistem sesi yakalama çalışıyor"}
+
+    if "No matching applications" in stderr:
+        return {
+            "ok": False,
+            "code": "no_matching_apps",
+            "stderr": stderr,
+            "message": "Seçili uygulama şu an çalışmıyor — listeyi yenileyip tekrar seçin",
+        }
+
+    if code in (133, 134) or (not stderr and code != 0):
+        return {
+            "ok": False,
+            "code": "permission_denied",
+            "stderr": stderr,
+            "message": "Ekran/Sistem Sesi Kaydı izni yok — KatipAI Audio için izin verin",
+        }
+
+    return {
+        "ok": False,
+        "code": "process_exited",
+        "stderr": stderr,
+        "message": stderr or f"Sistem sesi helper çıktı (kod {code})",
+    }
 
 
 class PermissionState(str, Enum):
@@ -82,19 +161,10 @@ def check_microphone() -> dict:
 def check_system_audio() -> dict:
     plat = get_platform()
     if plat == "macos":
-        from pathlib import Path
-
-        from core.audio.app_sources import get_capture_args, get_selected_apps
         from core.config import settings
+        from core.audio.app_sources import get_selected_apps
 
-        helper = (
-            Path(__file__).resolve().parents[1]
-            / "tools"
-            / "system_audio"
-            / ".build"
-            / "release"
-            / "SystemAudioCapture"
-        )
+        helper = _helper_path()
         if not helper.exists():
             return {
                 "state": PermissionState.UNAVAILABLE.value,
@@ -108,12 +178,39 @@ def check_system_audio() -> dict:
                 "state": PermissionState.UNKNOWN.value,
                 "message": "Uygulama seçilmedi — Ses Kaynakları bölümünden yapılandırın",
             }
-        if get_capture_args() is None:
-            return {"state": PermissionState.DENIED.value, "message": "Sistem sesi capture başlatılamadı"}
+
+        probe = _probe_system_capture(seconds=1.5)
+        if probe["ok"]:
+            return {
+                "state": PermissionState.GRANTED.value,
+                "message": "Sistem sesi yakalama çalışıyor",
+                "hint": str(helper),
+            }
+
+        code = probe["code"]
+        if code == "permission_denied":
+            app = _helper_app_bundle()
+            return {
+                "state": PermissionState.DENIED.value,
+                "message": probe["message"],
+                "hint": (
+                    "Sistem Ayarları → Ekran ve Sistem Sesi Kaydı → "
+                    "«Yalnızca Sistem Sesi Kaydı» → + → KatipAI Audio seçin"
+                ),
+                "helper_path": str(app if app.exists() else _helper_path()),
+                "helper_name": "KatipAI Audio",
+            }
+        if code == "no_matching_apps":
+            return {
+                "state": PermissionState.UNKNOWN.value,
+                "message": probe["message"],
+                "hint": "Ses çıkaran uygulamayı açık tutun, Ses Kaynakları'ndan yeniden seçin",
+            }
+
         return {
-            "state": PermissionState.UNKNOWN.value,
-            "message": "Yapılandırıldı — Ekran Kaydı izni gerekebilir (macOS)",
-            "hint": "Sistem Ayarları → Ekran Kaydı → Python",
+            "state": PermissionState.DENIED.value,
+            "message": probe["message"],
+            "hint": probe.get("stderr") or str(helper),
         }
     if plat == "windows":
         return {
@@ -205,6 +302,48 @@ def request_microphone_permission() -> dict:
     }
 
 
+def request_system_audio_permission() -> dict:
+    """Start capture briefly to trigger macOS Screen Recording prompt for KatipAI Audio."""
+    app = _helper_app_bundle()
+    if app.exists():
+        subprocess.run(["open", "-a", str(app), "--args", "--list-apps"], check=False)
+    probe = _probe_system_capture(seconds=3.0)
+    check = check_system_audio()
+    return {
+        "ok": probe["ok"],
+        "probe": probe,
+        **check,
+    }
+
+
+def reveal_system_audio_helper() -> dict:
+    app = _helper_app_bundle()
+    if not app.exists():
+        helper = _helper_path()
+        if not helper.exists():
+            return {
+                "ok": False,
+                "message": "Helper bulunamadı — tools/system_audio/build_helper.sh çalıştırın",
+            }
+        try:
+            subprocess.run(["open", "-R", str(helper)], check=False)
+            return {"ok": True, "message": f"Finder'da gösterildi: {helper}", "path": str(helper)}
+        except Exception as e:
+            return {"ok": False, "message": str(e)}
+    try:
+        subprocess.run(["open", "-R", str(app)], check=False)
+        return {
+            "ok": True,
+            "message": (
+                "Finder'da KatipAI Audio.app gösterildi — "
+                "Sistem Ayarları → Yalnızca Sistem Sesi Kaydı → + ile ekleyin"
+            ),
+            "path": str(app),
+        }
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
 def setup_all_permissions() -> dict:
     """Open all relevant settings + probe mic."""
     plat = get_platform()
@@ -250,6 +389,7 @@ def _setup_steps(plat: str) -> list[dict]:
             {"id": "mic_request", "title": "Mikrofon izni iste", "action": "request_microphone"},
             {"id": "mic_settings", "title": "Mikrofon ayarlarını aç", "action": "open_microphone"},
             {"id": "screen_settings", "title": "Ekran kaydı ayarlarını aç", "action": "open_screen_recording"},
+            {"id": "system_request", "title": "Sistem sesi izni iste", "action": "request_system_audio"},
             {"id": "restart", "title": "Kaydı yenile", "action": "restart_capture"},
         ]
     if plat == "windows":

@@ -26,8 +26,8 @@ pip install -e .
 
 echo "==> Sistem sesi aracı derleniyor (ScreenCaptureKit)..."
 if command -v swift &>/dev/null; then
-  (cd tools/system_audio && swift build -c release)
-  echo "Sistem sesi aracı hazır."
+  bash tools/system_audio/build_helper.sh
+  echo "KatipAI Audio.app hazır."
 else
   echo "Swift bulunamadı — sistem sesi devre dışı kalacak, sadece mikrofon."
 fi

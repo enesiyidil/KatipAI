@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from core.db.database import get_session
 from core.db.models import Chunk, Session, SessionStatus, Transcript
 from core.llm.summarizer import Summarizer
+from core.pipeline.worker import run_ml
 from core.stt.transcriber import Transcriber
 from core.vault.general_notes import extract_general_note, is_general_note_command
 from core.vault.writer import VaultWriter
@@ -52,7 +53,7 @@ class NotePipeline:
             started_at = chunk.started_at
             speaker = chunk.speaker_label
 
-        result = self.transcriber.transcribe(audio_path)
+        result = await run_ml(self.transcriber.transcribe, audio_path)
 
         with get_session() as db:
             chunk = db.get(Chunk, chunk_id)
@@ -135,8 +136,8 @@ class NotePipeline:
         if not lines:
             return
 
-        summary = self.summarizer.summarize_session(lines)
-        self.summarizer.unload()
+        summary = await run_ml(self.summarizer.summarize_session, lines)
+        await run_ml(self.summarizer.unload)
 
         vault_path = None
         if self.vault.enabled:

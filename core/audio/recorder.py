@@ -18,6 +18,21 @@ from core.db.models import AppState, Chunk, RecordingMode, Session, SessionStatu
 logger = logging.getLogger(__name__)
 
 
+def _capture_error_message(code: str | None) -> str:
+    if code == "no_sources":
+        return "Uygulama seçilmedi — sistem sesi dinlenmiyor"
+    if code == "permission_denied":
+        return (
+            "Ekran/Sistem Sesi Kaydı izni yok — Ayarlar → İzinler → "
+            "«Sistem sesi izni iste» veya KatipAI Audio.app'ı «Yalnızca Sistem Sesi Kaydı» listesine ekleyin"
+        )
+    if code == "helper_error":
+        return "Sistem sesi helper hatası — logları kontrol edin"
+    if code == "process_exited":
+        return "Sistem sesi başlatılamadı — izin ve uygulama seçimini kontrol edin"
+    return "Sistem sesi başlatılamadı"
+
+
 class RecordingService:
     """Orchestrates dual-channel capture, VAD, and chunk persistence."""
 
@@ -167,7 +182,11 @@ class RecordingService:
             self._mic.start()
         if settings.system_enabled:
             self._system = SystemAudioCapture(lambda f: self._handle_frame(Channel.SYSTEM, f))
-            self._system.start()
+            if not self._system.start():
+                logger.warning(
+                    "System audio capture not active at start: %s",
+                    _capture_error_message(self._system.last_error),
+                )
 
         if self._mode == RecordingMode.SENSITIVE:
             self._set_state(AppState.SENSITIVE)
@@ -195,16 +214,56 @@ class RecordingService:
         logger.info("Recording service stopped")
         return True
 
-    def restart_system_capture(self) -> None:
-        if not self._running or not settings.system_enabled:
-            return
+    def restart_system_capture(self) -> dict:
+        """Hot-restart ScreenCaptureKit helper after source selection changes."""
+        status = self.get_system_capture_status()
+
+        if not self._running:
+            status["restarted"] = False
+            status["message"] = "Dinleme kapalı — ayar kaydedildi, başlatınca uygulanır"
+            return status
+
+        if not settings.system_enabled:
+            if self._system:
+                self._system.stop()
+                self._system = None
+            status["restarted"] = False
+            status["message"] = "Sistem sesi devre dışı (Ayarlar → Kayıt)"
+            status.update(self.get_system_capture_status())
+            return status
+
+        self._echo_dedup.clear_system()
         if self._system:
             self._system.stop()
         self._system = SystemAudioCapture(lambda f: self._handle_frame(Channel.SYSTEM, f))
-        self._system.start()
+        started = self._system.start()
         if self._chunker is not None:
             self._chunker._source_app = source_app_label()
-        logger.info("System capture restarted")
+
+        status["restarted"] = True
+        status.update(self.get_system_capture_status())
+        if started:
+            status["message"] = "Sistem sesi yeniden başlatıldı"
+            logger.info("System capture restarted (%s)", status.get("capture_mode"))
+        else:
+            err = self._system.last_error if self._system else "unknown"
+            status["message"] = _capture_error_message(err)
+            logger.warning("System capture restart failed: %s", err)
+        return status
+
+    def get_system_capture_status(self) -> dict:
+        from core.audio.app_sources import capture_config_snapshot
+
+        snap = capture_config_snapshot()
+        active = bool(self._system and self._system.is_active)
+        last_error = self._system.last_error if self._system else None
+        return {
+            **snap,
+            "listening": self._running,
+            "system_enabled": settings.system_enabled,
+            "system_capture_active": active,
+            "last_error": last_error,
+        }
 
     def restart_mic_capture(self) -> None:
         if not self._running or not settings.mic_enabled:
@@ -267,16 +326,17 @@ class RecordingService:
         self._ensure_session()
         self._set_state(AppState.RECORDING)
 
-    def delete_last_chunk(self) -> bool:
+    def delete_last_chunk(self) -> int | None:
         with get_session() as db:
             chunk = db.query(Chunk).order_by(Chunk.id.desc()).first()
             if not chunk:
-                return False
+                return None
             from pathlib import Path
 
+            chunk_id = chunk.id
             Path(chunk.audio_path).unlink(missing_ok=True)
             db.delete(chunk)
-        return True
+        return chunk_id
 
     def _end_session(self) -> None:
         if self._session_id is None:

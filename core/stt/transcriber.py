@@ -94,9 +94,9 @@ class Transcriber:
                 initial_prompt=initial_prompt,
                 condition_on_previous_text=False,
                 word_timestamps=True,
-                no_speech_threshold=0.6,
-                logprob_threshold=-1.0,
-                compression_ratio_threshold=2.2,
+                no_speech_threshold=0.65,
+                logprob_threshold=-0.8,
+                compression_ratio_threshold=2.0,
             )
             segments = result.get("segments", [])
             text = result.get("text", "").strip()

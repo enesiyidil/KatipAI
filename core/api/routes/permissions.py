@@ -15,6 +15,16 @@ def request_microphone():
     return permissions.request_microphone_permission()
 
 
+@router.post("/permissions/request/system-audio")
+def request_system_audio():
+    return permissions.request_system_audio_permission()
+
+
+@router.post("/permissions/reveal/system-audio-helper")
+def reveal_system_audio_helper():
+    return permissions.reveal_system_audio_helper()
+
+
 @router.post("/permissions/open/{permission}")
 def open_permission_settings(permission: str):
     return permissions.open_system_settings(permission)

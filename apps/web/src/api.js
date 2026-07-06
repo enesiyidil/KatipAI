@@ -1,5 +1,6 @@
 const API = "http://127.0.0.1:8742/api";
-const WS = "ws://127.0.0.1:8742/ws";
+export const API_BASE = API;
+export const WS = "ws://127.0.0.1:8742/ws";
 
 export async function apiGet(path) {
   const res = await fetch(`${API}${path}`);
@@ -41,18 +42,6 @@ export async function apiDelete(path) {
   const res = await fetch(`${API}${path}`, { method: "DELETE" });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
-}
-
-export function connectWS(onMessage) {
-  let ws;
-  let closed = false;
-  const connect = () => {
-    ws = new WebSocket(WS);
-    ws.onmessage = (e) => onMessage(JSON.parse(e.data));
-    ws.onclose = () => { if (!closed) setTimeout(connect, 2500); };
-  };
-  connect();
-  return () => { closed = true; ws?.close(); };
 }
 
 export const STATE_META = {

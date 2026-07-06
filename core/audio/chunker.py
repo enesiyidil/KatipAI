@@ -154,7 +154,11 @@ class AudioChunker:
                 logger.info("Mic chunk echo detected (score=%.2f)", echo_score)
 
         if state.channel == Channel.MIC and not is_echo and self._voice_matcher is not None:
-            voice_match_score, speaker_label, voice_skip = self._voice_matcher.evaluate(audio)
+            try:
+                voice_match_score, speaker_label, voice_skip = self._voice_matcher.evaluate(audio)
+            except Exception:
+                logger.exception("Voice match failed — chunk yine de kaydedilecek")
+                voice_match_score, speaker_label, voice_skip = None, state.current_speaker, False
             if voice_skip:
                 skip_reason = "voice_mismatch"
 

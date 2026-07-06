@@ -101,7 +101,8 @@ class VoiceProfileService:
         else:
             features = features[:target_frames]
 
-        inp = features[np.newaxis, np.newaxis, :, :]
+        # Model expects (batch, time_frames, n_mels) — not 4D
+        inp = features[np.newaxis, :, :]
         try:
             out = self._session.run([self._output_name], {self._input_name: inp})[0]
             emb = out.reshape(-1).astype(np.float32)
@@ -130,12 +131,26 @@ class VoiceProfileService:
 
     @staticmethod
     def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+        if a.shape != b.shape:
+            logger.warning(
+                "Embedding boyut uyuşmazlığı: profil=%s, ses=%s — profili yeniden kaydedin",
+                a.shape,
+                b.shape,
+            )
+            return 0.0
         dot = float(np.dot(a, b))
         na = float(np.linalg.norm(a))
         nb = float(np.linalg.norm(b))
         if na < 1e-8 or nb < 1e-8:
             return 0.0
         return max(0.0, min(1.0, dot / (na * nb)))
+
+    def expected_embedding_dim(self) -> int:
+        return 512 if self.model_path.exists() else 128
+
+    def profile_embedding_dim(self) -> int | None:
+        profile = self.load_profile()
+        return int(profile.shape[0]) if profile is not None else None
 
     def is_enrolled(self) -> bool:
         with get_session() as db:
@@ -182,6 +197,8 @@ class VoiceProfileService:
             db.query(VoiceProfile).delete()
         backup = settings.data_dir / "voice_profile.npz"
         backup.unlink(missing_ok=True)
+        enrollment = settings.data_dir / "voice_enrollment.webm"
+        enrollment.unlink(missing_ok=True)
 
     def match(self, audio: np.ndarray) -> float:
         profile = self.load_profile()
@@ -190,16 +207,38 @@ class VoiceProfileService:
         emb = self.extract_embedding(audio)
         if emb is None:
             return 0.0
+        if profile.shape != emb.shape:
+            logger.warning(
+                "Ses profili eski formatta (%s) — Ayarlar → Ses Profili → yeniden kaydedin",
+                profile.shape,
+            )
+            return 0.0
         return self.cosine_similarity(profile, emb)
 
     def status(self) -> dict:
+        expected_dim = self.expected_embedding_dim()
         with get_session() as db:
             row = db.query(VoiceProfile).order_by(VoiceProfile.id.desc()).first()
             if not row:
-                return {"enrolled": False, "sample_count": 0, "last_updated": None, "model_ready": self.model_path.exists()}
+                return {
+                    "enrolled": False,
+                    "sample_count": 0,
+                    "last_updated": None,
+                    "model_ready": self.model_path.exists(),
+                    "embedding_dim": None,
+                    "expected_embedding_dim": expected_dim,
+                    "profile_valid": False,
+                    "has_enrollment_audio": False,
+                }
+            embedding_dim = len(row.embedding) // 4  # float32 bytes
+            enrollment_path = settings.data_dir / "voice_enrollment.webm"
             return {
                 "enrolled": True,
                 "sample_count": row.sample_count,
                 "last_updated": row.updated_at.isoformat() if row.updated_at else None,
                 "model_ready": self.model_path.exists(),
+                "embedding_dim": embedding_dim,
+                "expected_embedding_dim": expected_dim,
+                "profile_valid": embedding_dim == expected_dim,
+                "has_enrollment_audio": enrollment_path.exists(),
             }

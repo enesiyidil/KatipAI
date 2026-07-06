@@ -57,3 +57,6 @@ class EchoDedupEngine:
         score = self.echo_score(mic_audio)
         threshold = settings.echo_correlation_threshold
         return score >= threshold, score
+
+    def clear_system(self) -> None:
+        self._sys_buf = np.zeros(0, dtype=np.float32)

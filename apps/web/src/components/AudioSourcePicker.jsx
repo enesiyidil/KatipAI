@@ -1,13 +1,39 @@
 import { useEffect, useState } from "react";
-import { apiGet, apiPut, apiPost, apiPatch } from "../api";
-import { RefreshCw, Save, Monitor, CheckCircle2 } from "lucide-react";
+import { apiGet, apiPut, apiPost } from "../api";
+import { RefreshCw, Save, Monitor, CheckCircle2, AlertTriangle, Radio } from "lucide-react";
+
+const ERROR_TR = {
+  no_sources: "Uygulama seçilmedi veya tüm sistem sesi kapalı.",
+  permission_denied:
+    "SystemAudioCapture izni yok — Ayarlar → İzinler → «Sistem sesi izni iste».",
+  helper_error: "Yakalama hatası — seçili uygulama açık mı kontrol edin.",
+  process_exited: "Yakalama durdu — izin ve uygulama seçimini kontrol edin.",
+};
+
+function statusMessage(data) {
+  if (data.message) return data.message;
+  if (data.system_capture_active) {
+    return data.capture_mode === "all"
+      ? "Tüm sistem sesi dinleniyor"
+      : `${data.bundle_ids?.length || 0} uygulama dinleniyor`;
+  }
+  if (!data.helper_ready) return "SystemAudioCapture helper derlenmemiş.";
+  if (!data.system_enabled) return "Sistem sesi devre dışı (Kayıt Ayarları).";
+  if (!data.listening) return "Dinleme kapalı — kayıt başlatınca uygulanır.";
+  if (data.last_error) return ERROR_TR[data.last_error] || "Sistem sesi aktif değil.";
+  if (!data.can_capture) return "Kaynak seçilmedi — sistem sesi dinlenmiyor.";
+  return "Sistem sesi hazır değil.";
+}
 
 export default function AudioSourcePicker() {
   const [apps, setApps] = useState([]);
   const [selected, setSelected] = useState([]);
   const [captureAll, setCaptureAll] = useState(false);
+  const [captureStatus, setCaptureStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -19,6 +45,7 @@ export default function AudioSourcePicker() {
       setApps(appsRes.apps || []);
       setSelected(sourcesRes.bundle_ids || []);
       setCaptureAll(sourcesRes.capture_all_system_audio || false);
+      setCaptureStatus(sourcesRes);
     } catch {
       setApps([]);
     } finally {
@@ -40,20 +67,61 @@ export default function AudioSourcePicker() {
   };
 
   const save = async () => {
-    await apiPut("/audio/sources", { bundle_ids: selected });
-    if (captureAll !== undefined) {
-      await apiPatch("/settings", { capture_all_system_audio: captureAll });
+    setSaving(true);
+    setSaveMessage("");
+    try {
+      const res = await apiPut("/audio/sources", {
+        bundle_ids: selected,
+        capture_all_system_audio: captureAll,
+      });
+      setCaptureStatus(res);
+      setSaveMessage(res.message || statusMessage(res));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setSaveMessage(String(e.message || e));
+    } finally {
+      setSaving(false);
     }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
   };
 
   if (loading) {
     return <p className="text-sm text-zinc-500">Uygulamalar yükleniyor...</p>;
   }
 
+  const liveMsg = captureStatus ? statusMessage(captureStatus) : "";
+  const liveOk = captureStatus?.system_capture_active;
+  const liveWarn = captureStatus && !liveOk && captureStatus.listening;
+
   return (
     <div className="space-y-4">
+      {captureStatus && (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs flex items-start gap-2 ${
+            liveOk
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : liveWarn
+                ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                : "border-border bg-surface/50 text-zinc-400"
+          }`}
+        >
+          {liveOk ? (
+            <Radio className="w-3.5 h-3.5 mt-0.5 shrink-0 animate-pulse" />
+          ) : (
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          )}
+          <div>
+            <p>{liveMsg}</p>
+            {captureStatus.listening && (
+              <p className="text-[10px] opacity-80 mt-0.5">
+                Dinleme aktif
+                {captureStatus.system_capture_active ? " · sistem kanalı açık" : " · yalnızca mikrofon"}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
         <input
           type="checkbox"
@@ -61,14 +129,14 @@ export default function AudioSourcePicker() {
           onChange={(e) => setCaptureAll(e.target.checked)}
           className="rounded border-border"
         />
-        Tüm sistem sesini dinle (eski davranış)
+        Tüm sistem sesini dinle
       </label>
 
       {!captureAll && (
         <>
           <div className="flex items-center justify-between">
             <p className="text-xs text-zinc-500">
-              Dinlenecek uygulamaları seçin. Seçilmezse sistem sesi kaydedilmez.
+              Dinlenecek uygulamaları seçin. Kaydedince dinleme açıksa anında uygulanır.
             </p>
             <button
               onClick={refreshApps}
@@ -111,13 +179,19 @@ export default function AudioSourcePicker() {
         </>
       )}
 
-      <button
-        onClick={save}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium"
-      >
-        {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-        {saved ? "Kaydedildi" : "Kaydet"}
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+          {saving ? "Kaydediliyor..." : saved ? "Kaydedildi" : "Kaydet ve Uygula"}
+        </button>
+        {saveMessage && (
+          <span className={`text-xs ${saved ? "text-emerald-400" : "text-red-400"}`}>{saveMessage}</span>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>tr</string>
+    <key>CFBundleExecutable</key>
+    <string>KatipAIAudioHelper</string>
+    <key>CFBundleIdentifier</key>
+    <string>ai.katip.audio-helper</string>
+    <key>CFBundleName</key>
+    <string>KatipAI Audio</string>
+    <key>CFBundleDisplayName</key>
+    <string>KatipAI Audio</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>KatipAI sistem sesi yakalama.</string>
+</dict>
+</plist>

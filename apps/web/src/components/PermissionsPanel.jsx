@@ -73,6 +73,13 @@ export default function PermissionsPanel() {
     return apiPost("/permissions/request/microphone");
   });
 
+  const requestSystemAudio = () => act(async () => {
+    showToast("SystemAudioCapture izin penceresi açılabilir...", true);
+    return apiPost("/permissions/request/system-audio");
+  });
+
+  const revealHelper = () => act(() => apiPost("/permissions/reveal/system-audio-helper"));
+
   const openSetting = (key) => act(() => apiPost(`/permissions/open/${key}`));
 
   const restartCapture = () => act(() => apiPost("/permissions/restart-capture"));
@@ -113,7 +120,7 @@ export default function PermissionsPanel() {
         Tüm izinleri kur (tek tık)
       </button>
       <p className="text-[10px] text-zinc-500 text-center -mt-2">
-        Mikrofon testi yapar + sistem ayarlarını açar. Python/Terminal için izin verin.
+        Mikrofon testi + izin ayarları açılır. Sistem sesi için ayrıca SystemAudioCapture izni gerekir.
       </p>
 
       {/* Adım adım butonlar */}
@@ -123,6 +130,8 @@ export default function PermissionsPanel() {
           <>
             <Btn onClick={() => openSetting("microphone")} disabled={busy} icon={ExternalLink} label="2. Mikrofon ayarları" />
             <Btn onClick={() => openSetting("screen_recording")} disabled={busy} icon={ExternalLink} label="3. Ekran kaydı ayarları" />
+            <Btn onClick={requestSystemAudio} disabled={busy} icon={Monitor} label="4. Sistem sesi izni iste" accent />
+            <Btn onClick={revealHelper} disabled={busy} icon={ExternalLink} label="Helper'ı Finder'da göster" />
           </>
         )}
         {status.platform === "windows" && (
@@ -132,9 +141,16 @@ export default function PermissionsPanel() {
       </div>
 
       {status.platform === "macos" && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200/80">
-          macOS: <strong>Sistem Ayarları → Gizlilik → Mikrofon</strong> ve <strong>Ekran Kaydı</strong> altında
-          <strong> Python</strong> ve <strong>Terminal</strong> (veya Cursor) işaretli olmalı.
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200/80 space-y-1">
+          <p>
+            <strong>Mikrofon:</strong> Python veya Terminal/Cursor işaretli olmalı.
+          </p>
+          <p>
+            <strong>Sistem sesi:</strong> Python/iTerm/Cursor yetmez.{" "}
+            <strong>KatipAI Audio</strong> uygulamasını{" "}
+            <strong>«Yalnızca Sistem Sesi Kaydı»</strong> listesine ekleyin:
+            «Helper'ı Finder'da göster» → alttaki <strong>+</strong> → KatipAI Audio.app
+          </p>
         </div>
       )}
       {status.platform === "windows" && (

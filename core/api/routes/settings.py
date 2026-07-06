@@ -131,12 +131,10 @@ def update_settings(body: SettingsUpdate):
         settings.voice_match_threshold = body.voice_match_threshold
         env_updates["KATIPAI_VOICE_MATCH_THRESHOLD"] = str(body.voice_match_threshold)
     if body.capture_all_system_audio is not None:
-        settings.capture_all_system_audio = body.capture_all_system_audio
-        env_updates["KATIPAI_CAPTURE_ALL_SYSTEM_AUDIO"] = str(body.capture_all_system_audio).lower()
-        from core import services
+        from core.audio.app_sources import apply_audio_source_settings
 
-        if services.recording_service and services.recording_service.is_running:
-            services.recording_service.restart_system_capture()
+        apply_audio_source_settings(capture_all_system_audio=body.capture_all_system_audio)
+        env_updates["KATIPAI_CAPTURE_ALL_SYSTEM_AUDIO"] = str(body.capture_all_system_audio).lower()
 
     if env_updates:
         _persist_env(env_updates)
