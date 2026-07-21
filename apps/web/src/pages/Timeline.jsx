@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLiveStatus } from "../hooks/useLiveStatus";
-import { apiGet } from "../api";
-import { Mic, Monitor, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { apiGet, apiPost } from "../api";
+import { Mic, Monitor, AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 
 export default function Timeline() {
   const { tick } = useLiveStatus();
@@ -36,7 +36,9 @@ export default function Timeline() {
           <div className="absolute left-[19px] top-2 bottom-2 w-px bg-border" />
           <div className="space-y-3">
             {items.map((item) => (
-              <TimelineCard key={item.id} item={item} />
+              <TimelineCard key={item.id} item={item} onReprocess={() => {
+                apiPost(`/chunks/${item.id}/reprocess`).catch(() => {});
+              }} />
             ))}
           </div>
         </div>
@@ -45,10 +47,11 @@ export default function Timeline() {
   );
 }
 
-function TimelineCard({ item }) {
+function TimelineCard({ item, onReprocess }) {
   const isMic = item.channel === "mic";
   const skipped = item.skip_reason === "echo" || item.skip_reason === "voice_mismatch";
-  const pending = item.text == null && !skipped;
+  const failed = Boolean(item.processing_error);
+  const pending = item.text == null && !skipped && !failed;
   const emptySkipped = skipped && item.text === "";
   const lowConf = item.confidence != null && item.confidence < -0.5;
   const lowVoice = item.voice_match_score != null && item.voice_match_score < 0.75;
@@ -56,7 +59,7 @@ function TimelineCard({ item }) {
   return (
     <div className="relative pl-10">
       <div className={`absolute left-2.5 top-3 w-3 h-3 rounded-full border-2 border-surface ${
-        skipped ? "bg-zinc-700" : pending ? "bg-zinc-600" : lowConf ? "bg-amber-500" : "bg-emerald-500"
+        skipped ? "bg-zinc-700" : pending ? "bg-zinc-600" : failed ? "bg-red-500" : lowConf ? "bg-amber-500" : "bg-emerald-500"
       }`} />
       <div className="rounded-xl border border-border bg-panel p-4 hover:border-zinc-600 transition-colors">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -68,6 +71,11 @@ function TimelineCard({ item }) {
             {isMic ? "Mikrofon" : "Sistem"}
           </span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-zinc-800 text-zinc-400">{item.speaker}</span>
+          {!isMic && (item.source_app_display || item.source_app) && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-purple-500/10 text-purple-300">
+              {item.source_app_display || item.source_app}
+            </span>
+          )}
           {item.skip_reason === "echo" && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-orange-500/10 text-orange-400">
               Echo ({((item.echo_score || 0) * 100).toFixed(0)}%)
@@ -78,13 +86,10 @@ function TimelineCard({ item }) {
               Ses eşleşmedi
             </span>
           )}
-          {lowVoice && !skipped && (
+          {lowVoice && !skipped && item.speaker === "Ben" && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400">
               Düşük ses skoru
             </span>
-          )}
-          {item.source_app && (
-            <span className="text-[10px] text-zinc-600 truncate max-w-[120px]">{item.source_app}</span>
           )}
           <span className="text-[10px] text-zinc-600 ml-auto">{(item.duration_ms / 1000).toFixed(1)}s</span>
         </div>
@@ -93,13 +98,26 @@ function TimelineCard({ item }) {
           <p className="text-sm text-zinc-500 italic">
             {item.skip_reason === "echo" ? "Echo nedeniyle atlandı" : "Ses profiline uymadı — atlandı"}
           </p>
+        ) : failed ? (
+          <div className="space-y-2">
+            <div className="flex items-start gap-2 text-sm text-red-400">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <p>Transcript işlenemedi: {item.processing_error}</p>
+            </div>
+            <button
+              onClick={onReprocess}
+              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border hover:bg-panel-hover text-zinc-300"
+            >
+              <RefreshCw className="w-3 h-3" /> Yeniden dene
+            </button>
+          </div>
         ) : pending ? (
           <div className="flex items-center gap-2 text-sm text-zinc-500">
             <Loader2 className="w-3.5 h-3.5 animate-spin" /> Transcript işleniyor...
           </div>
         ) : (
           <>
-            <p className="text-sm text-zinc-200 leading-relaxed">{item.text}</p>
+            <p className="text-sm text-zinc-200 leading-relaxed">{item.text || "—"}</p>
             <div className="flex items-center gap-2 mt-2">
               {lowConf || item.needs_review ? (
                 <span className="inline-flex items-center gap-1 text-[10px] text-amber-400">

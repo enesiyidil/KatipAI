@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     sample_rate: int = 16000
     silence_chunk_ms: int = 2000
+    mic_silence_chunk_ms: int = 800
+    max_chunk_ms: int = 12000
+    system_max_chunk_ms: int = 25000
     silence_session_ms: int = 60000
     vad_threshold: float = 0.6
     min_audio_rms: float = 0.012

@@ -8,6 +8,8 @@ const REFRESH_EVENTS = new Set([
   "transcript_done",
   "session_finalized",
   "chunk_deleted",
+  "meeting_end",
+  "meeting_processed",
 ]);
 
 function handleWsMessage(msg, setStatus, setTick) {

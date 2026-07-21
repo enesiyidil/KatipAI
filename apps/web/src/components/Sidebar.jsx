@@ -1,12 +1,13 @@
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, FileText, Sparkles, BookMarked,
-  AlertCircle, Settings, Mic, Tags,
+  AlertCircle, Settings, Mic, Tags, Users,
 } from "lucide-react";
 import { STATE_META, MODE_LABELS } from "../api";
 
 const links = [
   { to: "/", icon: LayoutDashboard, label: "Kontrol Paneli" },
+  { to: "/meetings", icon: Users, label: "Toplantılar" },
   { to: "/timeline", icon: Mic, label: "Canlı Akış" },
   { to: "/notes", icon: Sparkles, label: "AI Notları" },
   { to: "/transcripts", icon: FileText, label: "Transcript" },

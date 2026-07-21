@@ -18,8 +18,9 @@ _executor: ThreadPoolExecutor | None = None
 def get_executor() -> ThreadPoolExecutor:
     global _executor
     if _executor is None:
-        _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="katipai-ml")
-        logger.info("ML worker thread pool started (1 worker)")
+        # 2 workers: live chunk STT can proceed while meeting batch runs
+        _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="katipai-ml")
+        logger.info("ML worker thread pool started (2 workers)")
     return _executor
 
 

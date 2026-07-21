@@ -3,6 +3,8 @@ import Sidebar from "./components/Sidebar";
 import { useLiveStatus } from "./hooks/useLiveStatus";
 import Dashboard from "./pages/Dashboard";
 import Timeline from "./pages/Timeline";
+import Meetings from "./pages/Meetings";
+import MeetingDetail from "./pages/MeetingDetail";
 import Notes from "./pages/Notes";
 import Transcripts from "./pages/Transcripts";
 import GeneralNotes from "./pages/GeneralNotes";
@@ -19,6 +21,8 @@ export default function App() {
       <main className="flex-1 p-6 lg:p-8 overflow-auto min-h-screen">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/meetings" element={<Meetings />} />
+          <Route path="/meetings/:id" element={<MeetingDetail />} />
           <Route path="/timeline" element={<Timeline />} />
           <Route path="/notes" element={<Notes />} />
           <Route path="/transcripts" element={<Transcripts />} />

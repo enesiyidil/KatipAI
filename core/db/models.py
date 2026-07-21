@@ -16,6 +16,20 @@ class SessionStatus(str, Enum):
     PROCESSING = "processing"
 
 
+class MeetingProcessingState(str, Enum):
+    RECORDING = "recording"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class TitleSource(str, Enum):
+    TEAMS_WINDOW = "teams_window"
+    AI = "ai"
+    MANUAL = "manual"
+    DATETIME = "datetime"
+
+
 class RecordingMode(str, Enum):
     NORMAL = "normal"
     MEETING = "meeting"
@@ -44,6 +58,12 @@ class Session(Base):
     status: Mapped[str] = mapped_column(String(32), default=SessionStatus.ACTIVE.value)
     vault_file: Mapped[str | None] = mapped_column(String(512), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    title_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    participants_hint: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    processing_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
@@ -79,6 +99,7 @@ class Transcript(Base):
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     language: Mapped[str] = mapped_column(String(8), default="tr")
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     chunk: Mapped["Chunk"] = relationship(back_populates="transcript")
     corrections: Mapped[list["Correction"]] = relationship(back_populates="transcript", cascade="all, delete-orphan")

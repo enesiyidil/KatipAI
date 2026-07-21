@@ -28,8 +28,23 @@ def _helper_path() -> Path:
     return HELPER_BIN_RAW
 
 
+def helper_binary_path() -> Path:
+    return _helper_path()
+
+
 def helper_display_name() -> str:
     return "KatipAI Audio"
+
+
+def running_selected_bundle_ids() -> list[str]:
+    """Selected bundle IDs that are currently running (required for ScreenCaptureKit)."""
+    if settings.capture_all_system_audio:
+        return []
+    selected = get_selected_apps()
+    if not selected:
+        return []
+    running = {app["bundle_id"] for app in list_available_apps()}
+    return [bid for bid in selected if bid in running]
 
 
 def list_available_apps() -> list[dict]:
@@ -72,39 +87,87 @@ def set_selected_apps(bundle_ids: list[str]) -> None:
 
 
 def get_capture_args() -> list[str] | None:
-    """Return CLI args for SystemAudioCapture, or None if capture should not start."""
-    helper = _helper_path()
-    if not helper.exists():
+    """CLI args for direct helper invocation (list-apps, legacy)."""
+    spec = get_capture_launch_spec()
+    if spec is None:
+        return None
+    return [str(_helper_path()), *spec["args"]]
+
+
+def get_capture_launch_spec() -> dict | None:
+    """Launch spec for KatipAIAudioHelper.app via `open -a` (macOS TCC)."""
+    if not HELPER_APP.exists() and not _helper_path().exists():
         return None
 
+    args = ["--capture"]
     if settings.capture_all_system_audio:
-        return [str(helper), "--capture", "--all"]
+        args.append("--all")
+        bundle_ids: list[str] = []
+    else:
+        bundle_ids = running_selected_bundle_ids()
+        if not bundle_ids:
+            return None
+        args.extend(["--apps", ",".join(bundle_ids)])
 
-    bundle_ids = get_selected_apps()
-    if not bundle_ids:
+    return {"app": str(HELPER_APP), "args": args, "bundle_ids": bundle_ids}
+
+
+KNOWN_APP_NAMES: dict[str, str] = {
+    "com.microsoft.teams2": "Microsoft Teams",
+    "com.microsoft.teams": "Microsoft Teams",
+    "com.google.Chrome": "Chrome",
+}
+
+
+def friendly_app_name(bundle_id: str) -> str:
+    if bundle_id in KNOWN_APP_NAMES:
+        return KNOWN_APP_NAMES[bundle_id]
+    if bundle_id.startswith("com.google.Chrome.app."):
+        return "Chrome Uygulaması"
+    parts = bundle_id.rsplit(".", 1)
+    if len(parts) == 2 and parts[1][0].isupper():
+        return parts[1].replace("_", " ")
+    return bundle_id.split(".")[-1].replace("_", " ").title()
+
+
+def active_capture_display_label() -> str | None:
+    if settings.capture_all_system_audio:
+        return "Tüm sistem sesi"
+    running = running_selected_bundle_ids()
+    if not running:
         return None
+    return ", ".join(friendly_app_name(bid) for bid in running)
 
-    return [str(helper), "--capture", "--apps", ",".join(bundle_ids)]
+
+def system_speaker_label() -> str:
+    """Speaker tag for system-channel chunks (e.g. Microsoft Teams)."""
+    running = running_selected_bundle_ids()
+    if not running:
+        return "Diğer"
+    if "com.microsoft.teams2" in running or "com.microsoft.teams" in running:
+        return "Microsoft Teams"
+    if len(running) == 1:
+        return friendly_app_name(running[0])
+    return ", ".join(friendly_app_name(bid) for bid in running[:2])
 
 
 def source_app_label() -> str | None:
-    if settings.capture_all_system_audio:
-        return "all"
-    apps = get_selected_apps()
-    if not apps:
-        return None
-    return ",".join(apps)
+    return active_capture_display_label()
 
 
 def capture_config_snapshot() -> dict:
     """Current source configuration and whether capture could start."""
     helper = _helper_path()
     bundle_ids = get_selected_apps()
+    running_ids = running_selected_bundle_ids()
     capture_all = settings.capture_all_system_audio
-    can_capture = helper.exists() and (capture_all or bool(bundle_ids))
+    can_capture = helper.exists() and (capture_all or bool(running_ids))
     mode = "all" if capture_all else ("apps" if bundle_ids else "none")
+    missing = [bid for bid in bundle_ids if bid not in set(running_ids)] if bundle_ids else []
     return {
         "bundle_ids": bundle_ids,
+        "running_bundle_ids": running_ids,
+        "missing_bundle_ids": missing,
         "capture_all_system_audio": capture_all,
         "helper_ready": helper.exists(),
         "helper_app": str(HELPER_APP) if HELPER_APP.exists() else None,

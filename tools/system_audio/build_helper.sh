@@ -17,8 +17,7 @@ cp "$ROOT/app/Info.plist" "$APP/Contents/Info.plist"
 chmod +x "$BIN"
 
 echo "==> App bundle imzalanıyor..."
-codesign -s - --force --deep "$APP"
+codesign --entitlements "$ROOT/app/entitlements.plist" -s - --force --deep "$APP"
 
 echo "Hazır: $APP"
-echo "macOS: Sistem Ayarları → Ekran ve Sistem Sesi Kaydı →"
-echo "  «Yalnızca Sistem Sesi Kaydı» bölümüne + ile KatipAI Audio ekleyin"
+echo "macOS: Sistem Ayarları → Ekran ve Sistem Sesi Kaydı → KatipAIAudioHelper açık olmalı"

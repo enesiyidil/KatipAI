@@ -51,5 +51,5 @@ class VoiceMatcher:
         if mode == "strict":
             return score, "Bilinmeyen", True
 
-        # prefer: düşük skorda yine transcribe et, mic kanalında "Ben" etiketi koru
-        return score, "Ben", False
+        # prefer: transcribe et ama düşük skorda konuşmacı "Diğer" (toplantı yankısı vb.)
+        return score, "Diğer", False

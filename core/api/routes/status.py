@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from core import services
+from core.config import settings
 from core.db.models import RecordingMode
 
 router = APIRouter()
@@ -18,6 +19,8 @@ def _status_payload():
     state = svc.app_state.value if svc else "idle"
     if pipeline["busy"] and state == "listening":
         state = "processing"
+    capture = svc.get_system_capture_status() if svc else {}
+    mic = capture.get("mic_activity") or {}
     return {
         "state": state,
         "raw_state": svc.app_state.value if svc else "idle",
@@ -25,7 +28,52 @@ def _status_payload():
         "session_id": svc.session_id if svc else None,
         "running": svc.is_running if svc else False,
         "pipeline": pipeline,
+        "system_capture_active": capture.get("system_capture_active", False),
+        "capture_warning": capture.get("capture_warning"),
+        "mic_activity": mic,
+        "mic_hint": _mic_hint(mic, capture.get("system_capture_active", False)),
+        "audio_thresholds": {
+            "min_audio_rms": settings.min_audio_rms,
+            "vad_threshold": settings.vad_threshold,
+        },
+        "recent_chunks": _recent_chunk_diagnostics(),
     }
+
+
+def _recent_chunk_diagnostics(limit: int = 8) -> list[dict]:
+    from core.db.database import get_session
+    from core.db.models import Chunk
+
+    with get_session() as db:
+        rows = db.query(Chunk).order_by(Chunk.id.desc()).limit(limit).all()
+        out = []
+        for c in reversed(rows):
+            t = c.transcript
+            out.append(
+                {
+                    "id": c.id,
+                    "channel": c.channel,
+                    "speaker": c.speaker_label,
+                    "skip_reason": c.skip_reason,
+                    "has_text": bool(t and t.text and t.text.strip()),
+                    "processing_error": t.processing_error if t else None,
+                    "pending": t is None and not c.skip_reason,
+                }
+            )
+        return out
+
+
+def _mic_hint(mic: dict, system_active: bool) -> str | None:
+    if not mic.get("active"):
+        return None
+    if mic.get("speaking"):
+        return None
+    if system_active:
+        return (
+            "Mikrofon sessiz — Teams kulaklık kullanıyorsanız sesiniz "
+            "«Microsoft Teams» (sistem) kanalından gelir, mikrofondan değil."
+        )
+    return "Mikrofon seviyesi düşük — macOS mikrofon iznini ve giriş cihazını kontrol edin."
 
 
 @router.get("/status")

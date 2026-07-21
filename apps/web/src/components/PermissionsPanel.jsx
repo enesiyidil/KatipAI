@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiPost } from "../api";
 import {
   Shield, Mic, Monitor, CheckCircle2, AlertCircle, HelpCircle,
-  ExternalLink, RefreshCw, Zap,
+  ExternalLink, RefreshCw, Zap, Eye,
 } from "lucide-react";
 
 const STATE_STYLE = {
@@ -109,6 +109,9 @@ export default function PermissionsPanel() {
 
       <StatusRow icon={Mic} label="Mikrofon" data={status.microphone} />
       <StatusRow icon={Monitor} label="Sistem sesi" data={status.system_audio} />
+      {status.platform === "macos" && (
+        <StatusRow icon={Eye} label="Erişilebilirlik (Teams başlığı)" data={status.accessibility} />
+      )}
 
       {/* Tek tuş kurulum */}
       <button
@@ -130,7 +133,8 @@ export default function PermissionsPanel() {
           <>
             <Btn onClick={() => openSetting("microphone")} disabled={busy} icon={ExternalLink} label="2. Mikrofon ayarları" />
             <Btn onClick={() => openSetting("screen_recording")} disabled={busy} icon={ExternalLink} label="3. Ekran kaydı ayarları" />
-            <Btn onClick={requestSystemAudio} disabled={busy} icon={Monitor} label="4. Sistem sesi izni iste" accent />
+            <Btn onClick={() => openSetting("accessibility")} disabled={busy} icon={Eye} label="4. Erişilebilirlik ayarları" />
+            <Btn onClick={requestSystemAudio} disabled={busy} icon={Monitor} label="5. Sistem sesi izni iste" accent />
             <Btn onClick={revealHelper} disabled={busy} icon={ExternalLink} label="Helper'ı Finder'da göster" />
           </>
         )}
@@ -147,9 +151,12 @@ export default function PermissionsPanel() {
           </p>
           <p>
             <strong>Sistem sesi:</strong> Python/iTerm/Cursor yetmez.{" "}
-            <strong>KatipAI Audio</strong> uygulamasını{" "}
-            <strong>«Yalnızca Sistem Sesi Kaydı»</strong> listesine ekleyin:
-            «Helper'ı Finder'da göster» → alttaki <strong>+</strong> → KatipAI Audio.app
+            <strong>KatipAIAudioHelper</strong> (KatipAI Audio) listede açık olmalı:{" "}
+            Sistem Ayarları → <strong>Ekran ve Sistem Sesi Kaydı</strong>
+          </p>
+          <p>
+            <strong>Teams başlığı:</strong> Terminal/Cursor için{" "}
+            <strong>Erişilebilirlik</strong> izni gerekir — Sistem Ayarları → Gizlilik ve Güvenlik → Erişilebilirlik
           </p>
         </div>
       )}

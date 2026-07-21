@@ -2,7 +2,7 @@
 
 > Eklenecek özellikler burada toplanır. Tamamlanan maddeler `[x]` ile işaretlenir.
 
-**Son güncelleme:** 2026-07-05
+**Son güncelleme:** 2026-07-07
 
 ---
 
@@ -65,12 +65,13 @@
 
 **Durum:** Planlandı
 
-Şu an **Toplantı Modu** tray menüsünden manuel seçiliyor (`RecordingMode.MEETING`); sistem sesi için uygulama bazlı capture ve echo ayrımı mevcut ama toplantı başlangıcı otomatik algılanmıyor.
+Şu an **Toplantı Modu** tray menüsünden manuel seçiliyor (`RecordingMode.MEETING`); sistem sesi için uygulama bazlı capture ve echo ayrımı mevcut ama toplantı başlangıcı otomatik algılanmıyor. Toplantı notları da günlük transcript/AI not akışından ayrı bir sekmede toplanmıyor.
 
 **Hedef:** Kullanıcı Teams üzerinden toplantıya girdiğinde KatipAI bunu algılasın, **toplantı moduna** geçsin ve kayıt profilini otomatik ayarlasın:
 - Mikrofon → kullanıcının sesi (**Ben**)
 - Teams sistem sesi → karşı taraf / diğer konuşmacılar (**Diğer**)
 - Echo dedup, kanal ayrımı ve ilgili ayarlar toplantı senaryosuna göre otomatik yapılandırılsın
+- Toplantı transcriptleri, özetleri ve notları **ayrı bir sekmede** (toplantı bazlı) görüntülensin
 
 - [ ] Toplantı uygulaması algılama (öncelik: Microsoft Teams — `com.microsoft.teams2`)
 - [ ] Algılama sonrası otomatik veya onaylı geçiş: normal → meeting modu + kayıt başlat
@@ -80,16 +81,92 @@
 - [ ] Toplantı bitince otomatik çıkış veya kullanıcı onayı ile normal moda dönüş
 - [ ] Tray bildirimi: "Toplantı algılandı — kayda başla?" (`meeting_auto_detect`, `meeting_auto_start`)
 - [ ] API: meeting durumu ve accept/dismiss uçları
+- [ ] DB: `Meeting` oturum modeli (başlangıç/bitiş, uygulama, başlık, transcript/özet FK)
+- [ ] Web UI: **Toplantılar** sekmesi — geçmiş ve aktif toplantılar, her toplantıya özel transcript + AI özeti
+- [ ] Vault: toplantı başına ayrı dosya veya günlük dosyada toplantı bloğu (`meetings/2026-07-07 — Sprint Planlama.md`)
 - [ ] Sonraki adım: Zoom, Meet, FaceTime vb. genişletme
+
+### Toplantı adı (Teams entegrasyonu)
+
+**Durum:** Araştırılacak — entegrasyon kolaysa dahil edilecek
+
+Sadece process algılama ile toplantı adı muhtemelen gelmez; başlık için ek kaynak gerekir. Öncelik sırası:
+
+| Yöntem | Zorluk | Not |
+|--------|--------|-----|
+| Teams pencere başlığı / UI metni okuma | Düşük–orta | OAuth yok; kırılgan ama hızlı POC |
+| Outlook / takvim eşlemesi (yakın saatteki etkinlik) | Orta | Toplantı davetinden başlık |
+| Microsoft Graph API (Teams + Calendar) | Yüksek | OAuth, izinler, en güvenilir başlık |
+
+- [ ] POC: Teams aktifken pencere başlığından toplantı adı çekilebiliyor mu test et
+- [ ] Başlık alınamazsa fallback: `Teams toplantısı — {tarih saat}` veya kullanıcıdan düzenleme
+- [ ] Graph API entegrasyonu yalnızca POC başarısız ve değer yüksekse (ayrı faz)
+- [ ] Toplantı başlığının tray bildirimi, UI sekmesi ve vault dosya adında kullanılması
+
+### Toplantı dışı arama algılama (1:1 çağrılar)
+
+**Durum:** Planlandı
+
+Teams'te planlı toplantı dışında yapılan **sesli/görüntülü aramalar** da benzer kayıt ihtiyacı doğurur. Bunlar da toplantı gibi ele alınmalı: otomatik algılama, meeting modu, transcript ve özet.
+
+**Hedef:** 1:1 veya küçük grup aramaları (toplantı odası olmayan) tespit edilip aynı pipeline ile kaydedilsin.
+
+- [ ] Teams arama durumu algılama (call UI / process state — toplantı odasından farklı sinyal)
+- [ ] Arama başlayınca meeting modu + çift kanal kayıt (toplantı ile aynı profil)
+- [ ] Arama bitince oturum kapatma ve özet üretimi
+- [ ] UI'da aramalar: toplantılar sekmesinde veya alt tür olarak (`Teams Araması — Ahmet`)
+- [ ] Mümkünse karşı taraf adı (Teams UI / Graph / son görüşme geçmişi)
+- [ ] Telefon uygulaması / FaceTime gibi diğer arama kaynaklarına genişletme (sonraki adım)
 
 **Örnek akış:**
 
 ```
-Teams toplantısı açıldı
-  → KatipAI algılar
+Teams toplantısı veya araması açıldı
+  → KatipAI algılar (+ mümkünse başlık: "Haftalık Sprint" / "Arama — Ayşe")
   → Toplantı modu + Teams system audio + mikrofon kaydı
   → Ben / Diğer ayrımı otomatik
-  → Toplantı kapandı → normal mod
+  → Transcript + özet → Toplantılar sekmesi + vault
+  → Oturum kapandı → normal mod
+```
+
+---
+
+## Arama & asistan
+
+### RAG chatbot (içeride soru-cevap)
+
+**Durum:** Planlandı
+
+Şu an transcript, AI notları ve genel notlar ayrı sayfalarda okunuyor; kullanıcı geçmişte konuşulan bir şeyi bulmak için manuel arama yapmak zorunda. Uygulama içinde doğal dilde soru sorup cevap alabileceği bir asistan yok.
+
+**Hedef:** KatipAI içinde bir **chatbot** olsun; AI notları, transcriptler, genel notlar, toplantı özetleri ve vault içeriği **RAG** ile indekslensin. Kullanıcı soru sorduğunda veya bir şey aradığında ilgili parçalar bulunup yerel LLM (Qwen) ile cevap üretilsin.
+
+**İndekslenecek kaynaklar:**
+
+| Kaynak | Örnek soru |
+|--------|------------|
+| Transcriptler | "Dün Ahmet ne dedi?" |
+| AI notları / oturum özetleri | "Son toplantıda kararlar neydi?" |
+| Genel notlar | "Yapılacaklar listemde ne var?" |
+| Toplantı notları | "Sprint planlamada konuşulan riskler?" |
+| Vault markdown | "Geçen hafta hangi konular geçti?" |
+
+- [ ] Embedding modeli + vektör deposu (tamamen lokal — sqlite-vec / chroma / benzeri)
+- [ ] İndeksleme pipeline: yeni transcript, özet ve not eklendikçe otomatik chunk + embed
+- [ ] Chunk stratejisi: tarih, konuşmacı, oturum/toplantı metadata'sı ile etiketleme
+- [ ] RAG retrieval: semantik arama + isteğe bağlı tarih/kaynak filtresi
+- [ ] Chat API: `POST /api/chat` — soru → retrieval → LLM cevap + kaynak referansları
+- [ ] Web UI: sohbet paneli / sayfası (mesaj geçmişi, kaynak snippet'leri, ilgili vault linki)
+- [ ] Cevaplarda **kaynak gösterimi** (hangi transcript/not, hangi tarih) — halüsinasyonu azaltmak için
+- [ ] Mevcut veriler için ilk kurulumda backfill indeksleme
+- [ ] Sonraki adım: MCP / dış araç entegrasyonu, komut tabanlı aksiyonlar ("bunu genel nota ekle")
+
+**Örnek kullanım:**
+
+```
+Kullanıcı: "Bu hafta proje deadline'ı hakkında ne konuşuldu?"
+  → RAG: ilgili transcript + AI özet chunk'ları
+  → LLM: özet cevap + kaynaklar (7 Temmuz oturum, Sprint toplantısı)
 ```
 
 ---

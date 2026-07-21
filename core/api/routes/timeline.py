@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from sqlalchemy import desc
 
 from core import services
+from core.audio.app_sources import active_capture_display_label
 from core.db.database import get_session
 from core.db.models import Chunk, Session, Transcript
 
@@ -25,6 +26,9 @@ def timeline_today():
         items = []
         for c in chunks:
             t = c.transcript
+            src_display = None
+            if c.channel == "system":
+                src_display = active_capture_display_label() or c.source_app
             items.append({
                 "id": c.id,
                 "session_id": c.session_id,
@@ -36,12 +40,14 @@ def timeline_today():
                 "text": t.text if t else None,
                 "confidence": t.confidence if t else None,
                 "needs_review": t.needs_review if t else False,
+                "processing_error": t.processing_error if t else None,
                 "transcript_id": t.id if t else None,
                 "skip_reason": c.skip_reason,
                 "is_echo": c.is_echo,
                 "echo_score": c.echo_score,
                 "voice_match_score": c.voice_match_score,
                 "source_app": c.source_app,
+                "source_app_display": src_display,
             })
     return {"date": today.isoformat(), "items": items}
 

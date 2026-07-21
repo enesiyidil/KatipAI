@@ -2,12 +2,19 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
+import Darwin
 
 @available(macOS 13.0, *)
 struct AppInfo: Codable {
     let bundle_id: String
     let name: String
     let pid: Int32
+}
+
+@available(macOS 13.0, *)
+func logErr(_ message: String) {
+    fputs(message + "\n", stderr)
+    fflush(stderr)
 }
 
 @available(macOS 13.0, *)
@@ -27,8 +34,39 @@ func listAppsJSON() async throws -> String {
 }
 
 @available(macOS 13.0, *)
+func connectUnixSocket(path: String) -> FileHandle? {
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+
+    var addr = sockaddr_un()
+    addr.sun_family = sa_family_t(AF_UNIX)
+    let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+    guard path.utf8.count < maxLen else {
+        close(fd)
+        return nil
+    }
+    _ = withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr in
+        path.withCString { cstr in
+            strncpy(ptr, cstr, maxLen - 1)
+        }
+    }
+
+    let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+    let ok = withUnsafePointer(to: &addr) { ptr in
+        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+            connect(fd, sa, size)
+        }
+    }
+    guard ok == 0 else {
+        close(fd)
+        return nil
+    }
+    return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+}
+
+@available(macOS 13.0, *)
 final class AudioCaptureDelegate: NSObject, SCStreamOutput {
-    private let stdout = FileHandle.standardOutput
+    private let sink: FileHandle
     private var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
@@ -36,6 +74,10 @@ final class AudioCaptureDelegate: NSObject, SCStreamOutput {
         channels: 1,
         interleaved: false
     )!
+
+    init(sink: FileHandle) {
+        self.sink = sink
+    }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, CMSampleBufferDataIsReady(sampleBuffer) else { return }
@@ -79,15 +121,21 @@ final class AudioCaptureDelegate: NSObject, SCStreamOutput {
         guard error == nil, let channelData = destBuffer.floatChannelData?[0] else { return }
 
         let byteCount = Int(destBuffer.frameLength) * MemoryLayout<Float32>.size
-        stdout.write(Data(bytes: channelData, count: byteCount))
+        sink.write(Data(bytes: channelData, count: byteCount))
     }
 }
 
 @available(macOS 13.0, *)
-func runCapture(allAudio: Bool, bundleIds: [String]) async throws {
+final class CaptureSession {
+    static var stream: SCStream?
+    static var delegate: AudioCaptureDelegate?
+}
+
+@available(macOS 13.0, *)
+func runCapture(allAudio: Bool, bundleIds: [String], socketPath: String?) async throws {
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     guard let display = content.displays.first else {
-        fputs("No display found\n", stderr)
+        logErr("No display found")
         exit(1)
     }
 
@@ -98,10 +146,23 @@ func runCapture(allAudio: Bool, bundleIds: [String]) async throws {
         let selected = Set(bundleIds)
         let apps = content.applications.filter { selected.contains($0.bundleIdentifier) }
         if apps.isEmpty {
-            fputs("No matching applications for capture\n", stderr)
+            logErr("No matching applications for capture")
             exit(1)
         }
+        let names = apps.map { $0.applicationName }.joined(separator: ", ")
+        logErr("Capturing audio from: \(names)")
         filter = SCContentFilter(display: display, including: apps, exceptingWindows: [])
+    }
+
+    let sink: FileHandle
+    if let socketPath {
+        guard let handle = connectUnixSocket(path: socketPath) else {
+            logErr("Failed to connect socket: \(socketPath)")
+            exit(1)
+        }
+        sink = handle
+    } else {
+        sink = FileHandle.standardOutput
     }
 
     let config = SCStreamConfiguration()
@@ -111,13 +172,15 @@ func runCapture(allAudio: Bool, bundleIds: [String]) async throws {
     config.excludesCurrentProcessAudio = true
 
     let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-    let delegate = AudioCaptureDelegate()
+    let delegate = AudioCaptureDelegate(sink: sink)
+    CaptureSession.stream = stream
+    CaptureSession.delegate = delegate
     try stream.addStreamOutput(
         delegate, type: .audio,
         sampleHandlerQueue: DispatchQueue(label: "katipai.audio")
     )
     try await stream.startCapture()
-    dispatchMain()
+    logErr("Capture started")
 }
 
 @available(macOS 13.0, *)
@@ -130,6 +193,11 @@ func mainAsync() async throws {
         exit(0)
     }
 
+    var socketPath: String?
+    if let idx = args.firstIndex(of: "--socket"), idx + 1 < args.count {
+        socketPath = args[idx + 1]
+    }
+
     if args.contains("--capture") {
         let allAudio = args.contains("--all")
         var bundleIds: [String] = []
@@ -137,15 +205,14 @@ func mainAsync() async throws {
             bundleIds = args[idx + 1].split(separator: ",").map(String.init).filter { !$0.isEmpty }
         }
         if !allAudio && bundleIds.isEmpty {
-            fputs("No apps specified. Use --all or --apps bundle.id,...\n", stderr)
+            logErr("No apps specified. Use --all or --apps bundle.id,...")
             exit(1)
         }
-        try await runCapture(allAudio: allAudio, bundleIds: bundleIds)
+        try await runCapture(allAudio: allAudio, bundleIds: bundleIds, socketPath: socketPath)
         return
     }
 
-    // Legacy: full display capture
-    try await runCapture(allAudio: true, bundleIds: [])
+    try await runCapture(allAudio: true, bundleIds: [], socketPath: socketPath)
 }
 
 if #available(macOS 13.0, *) {
@@ -153,7 +220,7 @@ if #available(macOS 13.0, *) {
         do {
             try await mainAsync()
         } catch {
-            fputs("Error: \(error)\n", stderr)
+            logErr("Error: \(error)")
             exit(1)
         }
     }

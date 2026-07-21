@@ -55,10 +55,8 @@ export const STATE_META = {
 };
 
 export const MODES = [
-  { id: "normal", label: "Normal", desc: "Mic + sistem sesi" },
-  { id: "meeting", label: "Toplantı", desc: "Sadece sistem sesi" },
-  { id: "silent", label: "Sessiz", desc: "Sadece mikrofon" },
-  { id: "sensitive", label: "Hassas", desc: "Kayıt duraklatılır" },
+  { id: "normal", label: "Normal", desc: "Sadece mikrofon — söylediklerin anında not olur" },
+  { id: "meeting", label: "Toplantı", desc: "Mic + Teams — toplantı bitince tek seferde işlenir" },
 ];
 
 export const MODE_LABELS = Object.fromEntries(MODES.map((m) => [m.id, m.label]));

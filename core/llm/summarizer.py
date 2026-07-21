@@ -80,11 +80,17 @@ class Summarizer:
 
     def _build_context(self) -> str:
         with get_session() as db:
-            jargon = db.query(Jargon).all()
-            corrections = db.query(Correction).filter(Correction.approved.is_(True)).limit(20).all()
-        jargon_text = ", ".join(j.term for j in jargon) if jargon else ""
+            jargon_terms = [j.term for j in db.query(Jargon).all()]
+            corrections = [
+                (c.original, c.corrected)
+                for c in db.query(Correction)
+                .filter(Correction.approved.is_(True))
+                .limit(20)
+                .all()
+            ]
+        jargon_text = ", ".join(jargon_terms) if jargon_terms else ""
         correction_examples = "\n".join(
-            f"- Yanlış: {c.original} → Doğru: {c.corrected}" for c in corrections
+            f"- Yanlış: {original} → Doğru: {corrected}" for original, corrected in corrections
         )
         parts = []
         if jargon_text:
@@ -117,8 +123,8 @@ class Summarizer:
         return f"{SYSTEM_PROMPT}\n\n{user_content}\n\nNot:"
 
     def summarize_session(self, transcript_lines: list[str]) -> str:
-        model, tokenizer = self._load()
         context = self._build_context()
+        model, tokenizer = self._load()
         transcript = "\n".join(transcript_lines)
         prompt = self._build_prompt(context, transcript)
 
@@ -148,3 +154,31 @@ Konuşma kaydı transcript'ten derlendi.
 
 ## Notlar
 - Tam transcript arşivde."""
+
+    def generate_meeting_title(self, snippet: str) -> str:
+        """Short meeting title from transcript/summary snippet."""
+        model, tokenizer = self._load()
+        prompt_text = (
+            "/no_think\n\n"
+            "Aşağıdaki toplantı metninden 3-8 kelimelik Türkçe bir toplantı başlığı üret. "
+            "Sadece başlığı yaz, tırnak veya açıklama ekleme.\n\n"
+            f"{snippet[:800]}"
+        )
+        if tokenizer.chat_template:
+            messages = [
+                {"role": "user", "content": prompt_text},
+            ]
+            try:
+                prompt = tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+                )
+            except TypeError:
+                prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        else:
+            prompt = prompt_text
+
+        raw = generate(model, tokenizer, prompt=prompt, max_tokens=32, verbose=False)
+        title = raw.strip().split("\n")[0].strip().strip('"').strip("'")
+        if len(title) > 120:
+            title = title[:117] + "..."
+        return title or "Toplantı"

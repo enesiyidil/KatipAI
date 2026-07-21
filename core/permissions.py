@@ -28,69 +28,9 @@ def _helper_app_bundle() -> Path:
 
 
 def _probe_system_capture(seconds: float = 2.0) -> dict:
-    """Try starting ScreenCaptureKit helper; detect permission / config failures."""
-    import time
+    from core.audio.capture import probe_system_capture
 
-    helper = _helper_path()
-    if not helper.exists():
-        return {
-            "ok": False,
-            "code": "missing_helper",
-            "stderr": "",
-            "message": "SystemAudioCapture derlenmemiş",
-        }
-
-    from core.audio.app_sources import get_capture_args
-
-    cmd = get_capture_args() or [str(helper), "--capture", "--all"]
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
-    except Exception as e:
-        return {"ok": False, "code": "spawn_failed", "stderr": str(e), "message": str(e)}
-
-    time.sleep(seconds)
-    code = proc.poll()
-    stderr = ""
-    if proc.stderr:
-        try:
-            stderr = proc.stderr.read().decode(errors="replace").strip()
-        except Exception:
-            pass
-
-    if code is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        return {"ok": True, "code": "running", "stderr": "", "message": "Sistem sesi yakalama çalışıyor"}
-
-    if "No matching applications" in stderr:
-        return {
-            "ok": False,
-            "code": "no_matching_apps",
-            "stderr": stderr,
-            "message": "Seçili uygulama şu an çalışmıyor — listeyi yenileyip tekrar seçin",
-        }
-
-    if code in (133, 134) or (not stderr and code != 0):
-        return {
-            "ok": False,
-            "code": "permission_denied",
-            "stderr": stderr,
-            "message": "Ekran/Sistem Sesi Kaydı izni yok — KatipAI Audio için izin verin",
-        }
-
-    return {
-        "ok": False,
-        "code": "process_exited",
-        "stderr": stderr,
-        "message": stderr or f"Sistem sesi helper çıktı (kod {code})",
-    }
+    return probe_system_capture(timeout=max(seconds, 8.0))
 
 
 class PermissionState(str, Enum):
@@ -165,11 +105,12 @@ def check_system_audio() -> dict:
         from core.audio.app_sources import get_selected_apps
 
         helper = _helper_path()
-        if not helper.exists():
+        app = _helper_app_bundle()
+        if not app.exists():
             return {
                 "state": PermissionState.UNAVAILABLE.value,
-                "message": "SystemAudioCapture derlenmemiş",
-                "hint": "cd tools/system_audio && swift build -c release",
+                "message": "KatipAIAudioHelper.app bulunamadı",
+                "hint": "bash tools/system_audio/build_helper.sh",
             }
         if not settings.system_enabled:
             return {"state": PermissionState.UNAVAILABLE.value, "message": "Sistem sesi ayarlarda kapalı"}
@@ -179,15 +120,15 @@ def check_system_audio() -> dict:
                 "message": "Uygulama seçilmedi — Ses Kaynakları bölümünden yapılandırın",
             }
 
-        probe = _probe_system_capture(seconds=1.5)
+        probe = _probe_system_capture(seconds=8.0)
         if probe["ok"]:
             return {
                 "state": PermissionState.GRANTED.value,
                 "message": "Sistem sesi yakalama çalışıyor",
-                "hint": str(helper),
+                "hint": str(_helper_app_bundle()),
             }
 
-        code = probe["code"]
+        code = probe.get("code")
         if code == "permission_denied":
             app = _helper_app_bundle()
             return {
@@ -195,12 +136,12 @@ def check_system_audio() -> dict:
                 "message": probe["message"],
                 "hint": (
                     "Sistem Ayarları → Ekran ve Sistem Sesi Kaydı → "
-                    "«Yalnızca Sistem Sesi Kaydı» → + → KatipAI Audio seçin"
+                    "KatipAIAudioHelper (veya KatipAI Audio) açık olmalı"
                 ),
                 "helper_path": str(app if app.exists() else _helper_path()),
                 "helper_name": "KatipAI Audio",
             }
-        if code == "no_matching_apps":
+        if code in ("no_matching_apps", "no_sources", "no_audio"):
             return {
                 "state": PermissionState.UNKNOWN.value,
                 "message": probe["message"],
@@ -335,8 +276,8 @@ def reveal_system_audio_helper() -> dict:
         return {
             "ok": True,
             "message": (
-                "Finder'da KatipAI Audio.app gösterildi — "
-                "Sistem Ayarları → Yalnızca Sistem Sesi Kaydı → + ile ekleyin"
+                "Finder'da KatipAIAudioHelper.app gösterildi — "
+                "Sistem Ayarları → Ekran ve Sistem Sesi Kaydı listesinde açık olmalı"
             ),
             "path": str(app),
         }
@@ -372,12 +313,18 @@ def setup_all_permissions() -> dict:
 
 def full_status() -> dict:
     plat = get_platform()
+    accessibility = {"state": PermissionState.UNAVAILABLE.value, "message": "Bu platformda desteklenmiyor"}
+    if plat == "macos":
+        from core.audio.teams_title import check_accessibility_for_teams
+
+        accessibility = check_accessibility_for_teams()
     return {
         "platform": plat,
         "platform_label": {"macos": "macOS", "windows": "Windows", "linux": "Linux"}.get(plat, plat),
         "os_version": platform.platform(),
         "microphone": check_microphone(),
         "system_audio": check_system_audio(),
+        "accessibility": accessibility,
         "settings_urls": {k: v["label"] for k, v in get_settings_urls().items()},
         "steps": _setup_steps(plat),
     }
@@ -389,6 +336,7 @@ def _setup_steps(plat: str) -> list[dict]:
             {"id": "mic_request", "title": "Mikrofon izni iste", "action": "request_microphone"},
             {"id": "mic_settings", "title": "Mikrofon ayarlarını aç", "action": "open_microphone"},
             {"id": "screen_settings", "title": "Ekran kaydı ayarlarını aç", "action": "open_screen_recording"},
+            {"id": "accessibility_settings", "title": "Erişilebilirlik ayarlarını aç", "action": "open_accessibility"},
             {"id": "system_request", "title": "Sistem sesi izni iste", "action": "request_system_audio"},
             {"id": "restart", "title": "Kaydı yenile", "action": "restart_capture"},
         ]

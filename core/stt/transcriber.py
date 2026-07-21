@@ -55,23 +55,24 @@ class ModelManager:
 
 def build_jargon_prompt() -> str:
     with get_session() as db:
-        terms = db.query(Jargon).all()
+        rows = db.query(Jargon.term, Jargon.aliases).all()
+        terms = [(str(term), str(aliases) if aliases else None) for term, aliases in rows]
     if not terms:
-        return "Türkçe teknik terimler, proje adları, kısaltmalar."
+        return "Türkçe konuşma transkripti."
     parts = []
-    for j in terms:
-        if j.aliases:
-            parts.append(f"{j.term} ({j.aliases})")
+    for term, aliases in terms:
+        if aliases:
+            parts.append(f"{term} ({aliases})")
         else:
-            parts.append(j.term)
-    return "Sözlük: " + ", ".join(parts)
+            parts.append(term)
+    return "Sözlük terimleri: " + ", ".join(parts[:40])
 
 
 class Transcriber:
     def __init__(self, model: str | None = None):
         self.model = model or settings.stt_model
 
-    def transcribe(self, audio_path: str) -> TranscriptionResult:
+    def transcribe(self, audio_path: str, *, use_jargon: bool = True) -> TranscriptionResult:
         rms = audio_rms(audio_path)
         if not is_loud_enough(rms):
             logger.info("Chunk reddedildi (düşük ses: rms=%.4f): %s", rms, audio_path)
@@ -86,7 +87,7 @@ class Transcriber:
 
         ModelManager.mark_stt_loaded()
         try:
-            initial_prompt = build_jargon_prompt()
+            initial_prompt = build_jargon_prompt() if use_jargon else "Türkçe konuşma transkripti."
             result = mlx_whisper.transcribe(
                 audio_path,
                 path_or_hf_repo=self.model,
@@ -103,7 +104,13 @@ class Transcriber:
             if not text and segments:
                 text = " ".join(s.get("text", "").strip() for s in segments).strip()
 
-            confidences = [s.get("avg_logprob", 0.0) for s in segments if s.get("text")]
+            confidences = [
+                float(c)
+                for s in segments
+                if s.get("text")
+                for c in [s.get("avg_logprob", 0.0)]
+                if c is not None and c == c  # skip NaN
+            ]
             avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
 
             if not text:

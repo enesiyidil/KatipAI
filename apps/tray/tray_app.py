@@ -66,7 +66,7 @@ class KatipAITray(rumps.App):
             None,
             rumps.MenuItem("Normal Mod", callback=lambda _: self.set_mode("normal")),
             rumps.MenuItem("Toplantı Modu", callback=lambda _: self.set_mode("meeting")),
-            rumps.MenuItem("Sessiz Mod", callback=lambda _: self.set_mode("silent")),
+            rumps.MenuItem("Sessiz Mod (STT kapalı)", callback=lambda _: self.set_mode("silent")),
             rumps.MenuItem("Hassas Mod", callback=lambda _: self.set_mode("sensitive")),
             None,
             rumps.MenuItem("Son Chunk Sil", callback=self.delete_last),

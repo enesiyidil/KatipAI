@@ -79,14 +79,46 @@ class AudioChunker:
         self._vads = {ch: SileroVAD() for ch in Channel}
         self.sample_rate = sample_rate
         self.chunk_silence_ms = settings.silence_chunk_ms
+        self.mic_silence_ms = settings.mic_silence_chunk_ms
+        self.max_chunk_ms = settings.max_chunk_ms
+        self.system_max_chunk_ms = settings.system_max_chunk_ms
         self.session_silence_ms = settings.silence_session_ms
         self.frame_ms = 30
         self.output_dir = settings.audio_dir / str(session_id)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._chunk_index = 0
         self._states = {ch: ChannelState(channel=ch) for ch in Channel}
+        if Channel.SYSTEM in self._states and source_app:
+            from core.audio.app_sources import system_speaker_label
+
+            self._states[Channel.SYSTEM].current_speaker = system_speaker_label()
         self._session_active = True
         self._global_silence_ms = 0
+
+    def _silence_limit_ms(self, channel: Channel) -> int:
+        if channel == Channel.MIC:
+            return self.mic_silence_ms
+        return self.chunk_silence_ms
+
+    def _max_chunk_ms(self, channel: Channel) -> int:
+        if channel == Channel.SYSTEM:
+            return self.system_max_chunk_ms
+        return self.max_chunk_ms
+
+    def _buffer_duration_ms(self, state: ChannelState) -> int:
+        if not state.buffer:
+            return 0
+        samples = sum(len(f) for f in state.buffer)
+        return int(samples / self.sample_rate * 1000)
+
+    def _maybe_force_split(self, state: ChannelState) -> None:
+        if state.is_recording and self._buffer_duration_ms(state) >= self._max_chunk_ms(state.channel):
+            logger.debug(
+                "Max chunk length reached on %s (%dms)",
+                state.channel.value,
+                self._buffer_duration_ms(state),
+            )
+            self._finalize_chunk(state)
 
     def process_frame(self, channel: Channel, frame: np.ndarray) -> None:
         if not self._session_active:
@@ -104,11 +136,14 @@ class AudioChunker:
                 state.buffer = []
                 logger.debug("Recording started on %s", channel.value)
             state.buffer.append(frame)
+            self._maybe_force_split(state)
         elif state.is_recording:
             state.silence_ms += self.frame_ms
             state.buffer.append(frame)
-            if state.silence_ms >= self.chunk_silence_ms:
+            if state.silence_ms >= self._silence_limit_ms(channel):
                 self._finalize_chunk(state)
+            else:
+                self._maybe_force_split(state)
         else:
             self._global_silence_ms += self.frame_ms
             if self._global_silence_ms >= self.session_silence_ms:
@@ -139,7 +174,7 @@ class AudioChunker:
         started_at = state.last_speech_at or datetime.now(timezone.utc)
         filename = f"{state.channel.value}_{self._chunk_index:04d}.wav"
         path = self.output_dir / filename
-        wavfile.write(path, self.sample_rate, (audio * 32767).astype(np.int16))
+        wavfile.write(path, self.sample_rate, (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16))
 
         is_echo = False
         echo_score = None
@@ -149,9 +184,6 @@ class AudioChunker:
 
         if state.channel == Channel.MIC and self._echo_dedup is not None:
             is_echo, echo_score = self._echo_dedup.is_echo(audio)
-            if is_echo:
-                skip_reason = "echo"
-                logger.info("Mic chunk echo detected (score=%.2f)", echo_score)
 
         if state.channel == Channel.MIC and not is_echo and self._voice_matcher is not None:
             try:
@@ -161,6 +193,25 @@ class AudioChunker:
                 voice_match_score, speaker_label, voice_skip = None, state.current_speaker, False
             if voice_skip:
                 skip_reason = "voice_mismatch"
+
+        # Kendi sesin hoparlör yankısı olsa bile yüksek voice skoru varsa echo sayma
+        if (
+            state.channel == Channel.MIC
+            and is_echo
+            and voice_match_score is not None
+            and voice_match_score >= settings.voice_match_threshold
+        ):
+            is_echo = False
+            echo_score = None
+            skip_reason = None
+            speaker_label = "Ben"
+            logger.info(
+                "Mic echo ignored — voice match %.2f >= threshold",
+                voice_match_score,
+            )
+        elif state.channel == Channel.MIC and is_echo:
+            skip_reason = "echo"
+            logger.info("Mic chunk echo detected (score=%.2f)", echo_score)
 
         result = ChunkResult(
             channel=state.channel,
@@ -175,6 +226,10 @@ class AudioChunker:
             skip_reason=skip_reason,
             source_app=self._source_app if state.channel == Channel.SYSTEM else None,
         )
+        if state.channel == Channel.SYSTEM and self._source_app:
+            from core.audio.app_sources import system_speaker_label
+
+            result.speaker_label = system_speaker_label()
         self._chunk_index += 1
         state.buffer = []
         state.is_recording = False
