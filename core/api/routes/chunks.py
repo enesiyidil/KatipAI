@@ -3,11 +3,11 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import joinedload
 
 from core.config import settings
 from core.db.database import get_session
 from core.db.models import Chunk, Transcript
-from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 

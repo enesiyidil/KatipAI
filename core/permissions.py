@@ -101,8 +101,8 @@ def check_microphone() -> dict:
 def check_system_audio() -> dict:
     plat = get_platform()
     if plat == "macos":
-        from core.config import settings
         from core.audio.app_sources import get_selected_apps
+        from core.config import settings
 
         helper = _helper_path()
         app = _helper_app_bundle()

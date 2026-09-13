@@ -11,6 +11,15 @@ _engine = None
 _SessionLocal = None
 
 
+def reset_engine() -> None:
+    """Drop the process-wide engine so tests can point at a temp data_dir."""
+    global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+    _SessionLocal = None
+
+
 def _ensure_engine():
     global _engine, _SessionLocal
     if _engine is None:

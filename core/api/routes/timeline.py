@@ -1,7 +1,6 @@
 from datetime import date, datetime
 
 from fastapi import APIRouter
-from sqlalchemy import desc
 
 from core import services
 from core.audio.app_sources import active_capture_display_label

@@ -10,7 +10,12 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 
-from core.audio.app_sources import capture_config_snapshot, get_capture_launch_spec, helper_app_bundle, helper_binary_path
+from core.audio.app_sources import (
+    capture_config_snapshot,
+    get_capture_launch_spec,
+    helper_app_bundle,
+    helper_binary_path,
+)
 from core.config import settings
 
 logger = logging.getLogger(__name__)

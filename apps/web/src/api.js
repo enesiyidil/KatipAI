@@ -1,6 +1,6 @@
-const API = "http://127.0.0.1:8742/api";
+const API = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8742/api";
 export const API_BASE = API;
-export const WS = "ws://127.0.0.1:8742/ws";
+export const WS = import.meta.env.VITE_WS_BASE || "ws://127.0.0.1:8742/ws";
 
 export async function apiGet(path) {
   const res = await fetch(`${API}${path}`);

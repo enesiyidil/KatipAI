@@ -1,11 +1,10 @@
 import logging
 
-import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from core.audio.audio_io import load_audio_bytes
-from core.audio.voice_profile import VoiceProfileService, SAMPLE_RATE
+from core.audio.voice_profile import SAMPLE_RATE, VoiceProfileService
 from core.config import settings
 
 logger = logging.getLogger(__name__)

@@ -383,7 +383,7 @@ def run_status() -> None:
         except Exception:
             print(f"  API   http://{settings.host}:{settings.port}  (yanıt okunamadı)")
     else:
-        print(f"  API   kapalı veya yanıt vermiyor")
+        print("  API   kapalı veya yanıt vermiyor")
 
     if _port_open(WEB_PORT):
         print(f"  Web   http://localhost:{WEB_PORT}")

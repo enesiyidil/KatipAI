@@ -7,9 +7,11 @@ import webbrowser
 
 import rumps
 
-API = "http://127.0.0.1:8742/api"
-API_HOST = "127.0.0.1"
-API_PORT = 8742
+from core.config import settings
+
+API_HOST = settings.host
+API_PORT = settings.port
+API = f"http://{API_HOST}:{API_PORT}/api"
 POLL_TIMEOUT = 8
 MAX_TRANSIENT_FAILURES = 4
 

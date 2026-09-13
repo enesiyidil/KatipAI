@@ -1,9 +1,17 @@
 [project]
 name = "katipai"
 version = "0.1.0"
-description = "Arka planda ses dinleyip not alan lokal AI asistan"
+description = "Local-first macOS assistant that listens and takes notes with on-device AI"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
+authors = [{ name = "Enes İyidil", email = "enesiyidil@users.noreply.github.com" }]
+keywords = ["macos", "speech-to-text", "whisper", "local-ai", "obsidian"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: MacOS",
+]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -15,8 +23,8 @@ dependencies = [
     "scipy>=1.14.0",
     "silero-vad>=5.1.2",
     "onnxruntime>=1.20.0",
-    "mlx-whisper>=0.4.2",
-    "mlx-lm>=0.21.0",
+    "mlx-whisper>=0.4.2; sys_platform == 'darwin'",
+    "mlx-lm>=0.21.0; sys_platform == 'darwin'",
     "websockets>=14.0",
     "watchdog>=6.0.0",
     "python-multipart>=0.0.17",
@@ -25,6 +33,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.28.0", "ruff>=0.8.0"]
+
+[project.urls]
+Homepage = "https://github.com/enesiyidil/KatipAI"
+Repository = "https://github.com/enesiyidil/KatipAI"
+Issues = "https://github.com/enesiyidil/KatipAI/issues"
 
 [project.scripts]
 katipai = "core.cli:main"
@@ -37,3 +50,17 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["core*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["core", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

@@ -8,8 +8,8 @@ from typing import Callable
 
 import numpy as np
 
-from core.audio.app_sources import capture_config_snapshot, source_app_label
-from core.audio.capture import MicrophoneCapture, SystemAudioCapture, SAMPLE_RATE
+from core.audio.app_sources import capture_config_snapshot
+from core.audio.capture import SAMPLE_RATE, MicrophoneCapture, SystemAudioCapture
 from core.audio.chunker import AudioChunker, Channel, ChunkResult
 from core.audio.dedup import EchoDedupEngine
 from core.audio.meeting_recorder import MeetingRecorder

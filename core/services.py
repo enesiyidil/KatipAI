@@ -1,7 +1,12 @@
-"""Shared runtime service instances."""
+"""Shared runtime service instances.
 
-from core.audio.recorder import RecordingService
-from core.pipeline.note_pipeline import NotePipeline
+Heavy types (RecordingService, NotePipeline) are not imported here so the
+API can start in tests without loading capture / ML stacks.
+"""
 
-recording_service: RecordingService | None = None
-note_pipeline: NotePipeline | None = None
+from __future__ import annotations
+
+from typing import Any
+
+recording_service: Any = None
+note_pipeline: Any = None

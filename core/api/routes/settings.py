@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -7,24 +8,21 @@ from core.config import settings
 
 router = APIRouter()
 
-ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
-PERSIST_KEYS = {
-    "KATIPAI_VAULT_PATH": "vault_path",
-    "KATIPAI_ECHO_SUPPRESSION_ENABLED": ("echo_suppression_enabled", lambda v: v.lower() in ("1", "true", "yes")),
-    "KATIPAI_ECHO_CORRELATION_THRESHOLD": ("echo_correlation_threshold", float),
-    "KATIPAI_VOICE_FILTER_MODE": "voice_filter_mode",
-    "KATIPAI_VOICE_MATCH_THRESHOLD": ("voice_match_threshold", float),
-    "KATIPAI_CAPTURE_ALL_SYSTEM_AUDIO": ("capture_all_system_audio", lambda v: v.lower() in ("1", "true", "yes")),
-    "KATIPAI_MIN_AUDIO_RMS": ("min_audio_rms", float),
-}
+def get_env_file() -> Path:
+    """Project `.env`, or `KATIPAI_ENV_FILE` when tests need isolation."""
+    override = os.environ.get("KATIPAI_ENV_FILE")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[3] / ".env"
 
 
 def _read_env() -> dict[str, str]:
-    if not ENV_FILE.exists():
+    path = get_env_file()
+    if not path.exists():
         return {}
     result = {}
-    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if "=" in line and not line.strip().startswith("#"):
             k, _, v = line.partition("=")
             result[k.strip()] = v.strip()
@@ -39,7 +37,9 @@ def _persist_env(updates: dict[str, str | None]) -> None:
         else:
             env[key] = value
     lines = [f"{k}={v}" for k, v in sorted(env.items())]
-    ENV_FILE.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    path = get_env_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
 def _persist_vault_path(path: str | None) -> None:

@@ -2,8 +2,6 @@ import gc
 import logging
 from dataclasses import dataclass
 
-import mlx_whisper
-
 from core.audio.quality import audio_rms, is_hallucination, is_loud_enough
 from core.config import settings
 from core.db.database import get_session
@@ -84,6 +82,8 @@ class Transcriber:
                 rejected=True,
                 reject_reason=f"low_rms:{rms:.4f}",
             )
+
+        import mlx_whisper
 
         ModelManager.mark_stt_loaded()
         try:

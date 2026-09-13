@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from core.db.database import get_session
-from core.db.models import Chunk, Session, Transcript
+from core.db.models import Chunk, Session
 
 router = APIRouter()
 

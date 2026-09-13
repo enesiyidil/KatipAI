@@ -1,8 +1,6 @@
 import logging
 import re
 
-from mlx_lm import generate, load
-
 from core.config import settings
 from core.db.database import get_session
 from core.db.models import Correction, Jargon
@@ -69,6 +67,8 @@ class Summarizer:
 
     def _load(self):
         if self._model is None:
+            from mlx_lm import load
+
             ModelManager.mark_llm_loaded()
             self._model, self._tokenizer = load(self.model_name)
         return self._model, self._tokenizer
@@ -128,6 +128,8 @@ class Summarizer:
         transcript = "\n".join(transcript_lines)
         prompt = self._build_prompt(context, transcript)
 
+        from mlx_lm import generate
+
         raw = generate(
             model,
             tokenizer,
@@ -176,6 +178,8 @@ Konuşma kaydı transcript'ten derlendi.
                 prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         else:
             prompt = prompt_text
+
+        from mlx_lm import generate
 
         raw = generate(model, tokenizer, prompt=prompt, max_tokens=32, verbose=False)
         title = raw.strip().split("\n")[0].strip().strip('"').strip("'")

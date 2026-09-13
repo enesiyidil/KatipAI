@@ -7,14 +7,25 @@ from typing import Any, Literal
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.api.routes import audio, chunks, corrections, jargon, meetings, permissions, sessions, settings as settings_routes, status, timeline, vault_read, voice
-from core.audio.recorder import RecordingService
+from core import services
+from core.api.routes import (
+    audio,
+    chunks,
+    corrections,
+    jargon,
+    meetings,
+    permissions,
+    sessions,
+    status,
+    timeline,
+    vault_read,
+    voice,
+)
+from core.api.routes import settings as settings_routes
 from core.config import settings
 from core.db.database import init_db
 from core.db.models import AppState
-from core.pipeline.note_pipeline import NotePipeline
 from core.pipeline.worker import shutdown_worker
-from core import services
 
 logger = logging.getLogger(__name__)
 
@@ -203,30 +214,42 @@ async def lifespan(app: FastAPI):
 
     init_db()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    services.note_pipeline = NotePipeline()
-    _pipeline_queue = asyncio.PriorityQueue()
-    _pipeline_tasks = [
-        asyncio.create_task(_pipeline_worker_loop()) for _ in range(_PIPELINE_WORKERS)
-    ]
-    _pipeline_task = _pipeline_tasks[0]
+    settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    from core.audio.retention import purge_expired_audio
 
-    services.recording_service = RecordingService(
-        on_state_change=on_state_change,
-        on_mode_change=on_mode_change,
-        on_chunk_saved=on_chunk_saved,
-        on_session_end=on_session_end,
-        on_meeting_end=on_meeting_end,
-    )
-    services.recording_service.set_event_loop(asyncio.get_running_loop())
-    _api_loop = asyncio.get_running_loop()
-    services.recording_service.start()
-    await _reprocess_pending_chunks()
-    logger.info(
-        "KatipAI core started on %s:%s (%d pipeline workers)",
-        settings.host,
-        settings.port,
-        _PIPELINE_WORKERS,
-    )
+    purge_expired_audio(settings.audio_dir, settings.audio_retention_days)
+
+    start_services = getattr(app.state, "start_services", True)
+    if start_services:
+        from core.audio.recorder import RecordingService
+        from core.pipeline.note_pipeline import NotePipeline
+
+        services.note_pipeline = NotePipeline()
+        _pipeline_queue = asyncio.PriorityQueue()
+        _pipeline_tasks = [
+            asyncio.create_task(_pipeline_worker_loop()) for _ in range(_PIPELINE_WORKERS)
+        ]
+        _pipeline_task = _pipeline_tasks[0]
+
+        services.recording_service = RecordingService(
+            on_state_change=on_state_change,
+            on_mode_change=on_mode_change,
+            on_chunk_saved=on_chunk_saved,
+            on_session_end=on_session_end,
+            on_meeting_end=on_meeting_end,
+        )
+        services.recording_service.set_event_loop(asyncio.get_running_loop())
+        _api_loop = asyncio.get_running_loop()
+        services.recording_service.start()
+        await _reprocess_pending_chunks()
+        logger.info(
+            "KatipAI core started on %s:%s (%d pipeline workers)",
+            settings.host,
+            settings.port,
+            _PIPELINE_WORKERS,
+        )
+    else:
+        logger.info("KatipAI API started without recording/ML services")
     yield
 
     _api_loop = None
@@ -243,14 +266,20 @@ async def lifespan(app: FastAPI):
 
     if services.recording_service:
         services.recording_service.stop()
+        services.recording_service = None
+    services.note_pipeline = None
     shutdown_worker()
 
 
-def create_app() -> FastAPI:
+def create_app(*, start_services: bool = True) -> FastAPI:
     app = FastAPI(title="KatipAI", version="0.1.0", lifespan=lifespan)
+    app.state.start_services = start_services
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
