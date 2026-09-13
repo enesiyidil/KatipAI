@@ -43,6 +43,8 @@ npm install
 
 We keep a single long-lived branch (`main`). Feature work happens on short-lived `feat/*` / `fix/*` branches merged via pull request.
 
+**Do not push to `main`.** Only the maintainer merges. Incoming PRs need a review from [@enesiyidil](https://github.com/enesiyidil) (code owner), green CI (`python` and `web`), and resolved conversations. New commits after an approval dismiss that review.
+
 ## Checks (run before pushing)
 
 ```bash
@@ -77,7 +79,7 @@ Please do **not** open a public issue for vulnerabilities. Follow [SECURITY.md](
 
 - Büyük değişikliklerden önce lütfen bir **issue açın**.
 - Kurulum: `python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`. MLX paketleri yalnızca macOS'ta kurulur; Linux/Windows'ta çekirdek geliştirme ve testler çalışır.
-- Dal isimlendirme: `feat/*`, `fix/*`; PR `main`'e açılır.
+- Dal isimlendirme: `feat/*`, `fix/*`; PR `main`'e açılır. `main`'e doğrudan push yok; birleşme için maintainer onayı ve yeşil CI gerekir.
 - Göndermeden önce: `ruff check core tests`, `pytest -q`, ve web için `npm test && npm run build`.
 - Sır, gerçek `.env`, ses kaydı, transcript veya ses profili commit etmeyin.
 - Güvenlik açıkları için herkese açık issue açmayın; [SECURITY.md](SECURITY.md) izleyin.
