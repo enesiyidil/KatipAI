@@ -1,0 +1,52 @@
+name: Bug report
+description: Something is broken or unexpected
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do **not** attach real audio, transcripts, or voice-profile files.
+        Redact personal content. Prefer synthetic examples.
+
+        Gerçek ses, transcript veya ses profili dosyası eklemeyin.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `katipai up --all`
+        2. Switch to meeting mode
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / chip
+      placeholder: macOS 15.1 / M1 Pro
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: KatipAI version / commit
+      placeholder: 0.1.0 or a git SHA
+  - type: textarea
+    id: doctor
+    attributes:
+      label: katipai doctor output
+      description: Paste the output of `katipai doctor` (no personal paths if you can avoid them).
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Logs, screenshots of the UI (not of transcripts), related issues.

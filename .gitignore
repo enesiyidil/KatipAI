@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+
+# Environment / local secrets
+.env
+.env.local
+
+# Developer-local notes (contains absolute home paths)
+VENV-NOTES.md
+
+# Runtime data & models
+models/
+*.wav
+*.db
+.katipai/
+
+# macOS
+.DS_Store
+
+# Node / web
+node_modules/
+dist/
+target/
+apps/tauri/gen/
+apps/web/dist/
+
+# Swift ScreenCaptureKit helper build artifacts (built via tools/system_audio/build_helper.sh)
+tools/system_audio/.build/
+tools/system_audio/*.app/
+*.dSYM/

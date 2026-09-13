@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an improvement or new capability
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [docs/FEATURES.md](../../docs/FEATURES.md) and [docs/ROADMAP.md](../../docs/ROADMAP.md) first.
+        For large ideas, discuss here before opening a pull request.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What gap or friction does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? Any alternatives you considered?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Audio / VAD / capture
+        - STT / LLM
+        - Vault / notes
+        - Web UI
+        - Tray / supervisor
+        - Docs / OSS
+        - Other
+    validations:
+      required: true
